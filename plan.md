@@ -149,15 +149,70 @@ The agent behavior changes based on student stage:
 - **College data:** College Scorecard API (real, live)
 - **Hosting:** Whatever deploys fastest — Vercel for frontend, Railway or Render for backend
 
-## What to scaffold first
+## Team ownership
 
-1. Supabase schema for student profiles with RLS for multi-tenant isolation
-2. College Scorecard API wrapper with the filters we need (cost, programs, acceptance rate, outcomes, visa-friendliness)
-3. Claude agent with tool calling wired to `update_profile` and `search_colleges`
-4. Basic React chat UI that renders agent responses and shows the profile building in a side panel
-5. Qdrant setup with 20 seeded college embeddings
-6. Twilio SMS integration — not a second chat UI, but the retention layer: `schedule_checkin` triggers future texts (reminders, nudges, follow-ups) that bring students back to the web experience
-7. Micro-internship flow triggered by career curiosity detection
+### AI Engineering (Drew)
+
+1. **Agent core** — system prompt, Claude API conversation loop, tool definitions
+2. **Profile extraction** — background inference that turns conversation into profile updates without survey questions
+3. **Stage-aware routing** — agent behaves differently for sophomore/senior/transfer/etc.
+4. **Micro-internship engine** — probe flow, four probe types, learning velocity scoring
+5. **College matching orchestration** — when to trigger search, how to build the query from profile, "here's why" explanations
+6. **`schedule_checkin` tool handler** — writes a scheduled event (timestamp, student_id, message/topic) to Supabase. Does NOT send the SMS itself — a backend job/cron picks up due rows and fires Twilio. Your tool just creates the row.
+
+### Data & Backend Infrastructure (Simon)
+
+1. **Supabase schema** — student profiles table matching the profile schema above, with RLS policies for multi-tenant isolation (each student only sees their own data)
+2. **`scheduled_checkins` table** — columns: student_id, send_at, channel (sms/email), topic, message_body, sent_at (null until delivered). Drew's `schedule_checkin` tool writes rows here.
+3. **`session_history` table** — conversation logs tied to student_id, append-only
+4. **College Scorecard API wrapper** — Python functions that query the API with filters Drew's agent needs: cost (avg_net_price), programs offered, acceptance rate, graduation rate, earnings outcomes, visa-friendliness (international student %). Expose clean function signatures Drew can call from his tool handlers.
+5. **Qdrant setup** — collection with ~20 seeded college embeddings. Each vector includes metadata fields for hard filtering (net_price, acceptance_rate, programs list, location, school_size). Hand-write culture/vibe text for each school to embed alongside the factual data.
+6. **Cron/job runner for scheduled check-ins** — polls `scheduled_checkins` for rows where `send_at <= now()` and `sent_at IS NULL`, fires Twilio SMS, marks row as sent. Simple loop on a timer or a Supabase Edge Function.
+7. **Database helper functions** — read/write profile, append session history, read scheduled check-ins. These are the functions Drew stubs against until they're ready.
+
+### Frontend, SMS & Student Experience (Jesse)
+
+1. **React web chat UI** — the primary interface. Chat panel on the left, student profile building live on a side panel on the right. Students see their profile take shape as they talk.
+2. **Profile side panel** — renders the student profile in real time as Drew's agent updates it. Show confidence scores as progress bars, interests as tags, hard constraints as a summary card. This is what makes the demo visually compelling — judges see the AI thinking.
+3. **College recommendation cards** — when Drew's agent returns college matches, render them as rich cards (school name, cost, acceptance rate, match reasons, key stats). Not just text in the chat.
+4. **Micro-internship UI** — when Drew's agent triggers a micro-internship, the probe questions need to feel interactive, not like a quiz. Consider cards, progress indicators, or a distinct visual mode so it feels like a different experience from regular chat.
+5. **API integration** — call Drew's FastAPI endpoint with `{student_id, message}`, receive `{response, updated_profile}`, update both chat and side panel. Handle streaming if Drew implements it.
+6. **Twilio SMS integration** — set up the Twilio account, phone number, and webhook. When Simon's cron job fires a scheduled check-in, the SMS goes out through Twilio. Also handle the case where a student texts back — route inbound SMS to Drew's conversation loop with the same student_id.
+7. **Auth & onboarding flow** — simple student account creation (name + email minimum). Generate student_id, create the profile in Supabase via Simon's helpers. The first chat message should feel like meeting a counselor, not filling out a form.
+8. **Deployment** — Vercel for the React frontend, Railway or Render for Drew's FastAPI backend. Get a shareable URL live for the demo.
+9. **Demo polish** — pre-seed the three demo personas (Jordan, Devon, Caleb) so judges can switch between them instantly. Make the persona switch seamless — a dropdown or tabs, not separate logins.
+10. **The SMS demo moment** — during the live demo, capture a judge's phone number in the web chat. Trigger a live Twilio text to their phone. This is the most memorable beat of the 8-minute demo — make sure it works flawlessly.
+
+### Cross-team dependencies
+
+| Drew needs | From whom | What exactly |
+|------------|-----------|--------------|
+| Profile read/write functions | Simon | Function signatures for loading and saving student profiles to Supabase |
+| `scheduled_checkins` table | Simon | Table ready so `schedule_checkin` tool can write rows |
+| College Scorecard wrapper | Simon | Function that takes filters, returns college data |
+| Qdrant query interface | Simon | Function that takes an embedding + metadata filters, returns matched colleges |
+| API contract | Jesse | Agreement on `{student_id, message}` → `{response, updated_profile}` shape |
+| Inbound SMS routing | Jesse | Twilio webhook that forwards incoming texts to Drew's conversation loop |
+
+| Simon needs | From whom | What exactly |
+|-------------|-----------|--------------|
+| Profile schema finalized | Drew | Confirm the JSON schema is the final shape so tables can be built |
+| College filter list | Drew | Exact fields the agent will filter on so the wrapper and Qdrant metadata match |
+
+| Jesse needs | From whom | What exactly |
+|-------------|-----------|--------------|
+| API endpoint live | Drew | FastAPI route accepting requests so frontend can integrate |
+| Profile update format | Drew | Shape of the `updated_profile` in the response so the side panel knows what to render |
+| Scheduled check-in delivery | Simon | Cron job working so SMS demo moment is reliable |
+
+## Scaffolding order (Drew)
+
+1. **System prompt + tool schemas** — write the Claude tool_use JSON schemas for all five tools, write the system prompt with profile injection slot. Zero dependencies, start now.
+2. **Conversation loop endpoint** — FastAPI route: takes student_id + message, loads profile (stub with a dict), calls Claude, parses tool calls, returns response. This is the integration surface everyone plugs into.
+3. **`update_profile` handler** — Claude calls it with inferred fields, you validate and merge. Stub the DB write until Simon has Supabase ready.
+4. **`search_colleges` handler** — stub it to call Simon's wrapper. Hardcoded filters first, swap to profile-driven once extraction works.
+5. **Micro-internship state machine** — probe flow with difficulty escalation and velocity scoring. Self-contained, mostly prompt engineering + a scoring function.
+6. **`schedule_checkin` handler** — writes a row to `scheduled_checkins` in Supabase (student_id, send_at timestamp, channel, message/topic). Simon's cron job picks up due rows and fires Twilio.
 
 ## The north star for every decision
 
