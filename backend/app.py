@@ -114,12 +114,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-import json
-from pathlib import Path
-schools_path = Path(__file__).parent / "schools.json"
-with open(schools_path) as f:
-    SCHOOLS_DATA = json.load(f)
-
 profiles: dict[str, dict] = {}
 conversations: dict[str, list] = {}
 
