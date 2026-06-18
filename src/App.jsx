@@ -11,7 +11,7 @@ const API_URL = isEnvSms ? 'http://localhost:8000' : (rawEnvUrl || 'http://local
 const SMS_API_URL = import.meta.env.VITE_SMS_API_URL || (isEnvSms ? rawEnvUrl : 'http://localhost:3001')
 const DEV_AUTH_ENABLED = import.meta.env.VITE_ENABLE_DEV_AUTH === 'true'
 
-const GRADE_OPTIONS = ['9th', '10th', '11th', '12th']
+const GRADE_OPTIONS = ['9th', '10th', '11th', '12th', 'Already Graduated / Returning student']
 
 // Maps internal tool names to student-facing search labels
 const TOOL_LABELS = {
@@ -615,7 +615,7 @@ function ChatScreen({ sessionToken, initialProfile, onSignOut, onGoToEssays }) {
         setMessages(prev => [
           ...prev,
           { role: 'user', text: value },
-          { role: 'assistant', text: 'Nice to meet you! What grade are you in?' }
+          { role: 'assistant', text: 'Nice to meet you! What grade are you in?  Or are you coming back to school after a break?' }
         ])
         setOnboardingStep('grade')
         break
