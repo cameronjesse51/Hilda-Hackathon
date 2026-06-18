@@ -15,11 +15,13 @@ try:
     from backend.agent.conversation import run_conversation, stream_conversation
     from backend.auth import create_session_token, get_current_student, validate_dev_auth_key
     from backend.phone import normalize_phone_e164
+    from backend.sms_config import welcome_sms_enabled
     from backend import db
 except ModuleNotFoundError:
     from agent.conversation import run_conversation, stream_conversation
     from auth import create_session_token, get_current_student, validate_dev_auth_key
     from phone import normalize_phone_e164
+    from sms_config import welcome_sms_enabled
     import db
 
 import time
@@ -30,6 +32,7 @@ from datetime import datetime, timezone
 load_dotenv()
 
 app = FastAPI(title="Halda AI College Counselor")
+
 
 @app.on_event("startup")
 async def start_sms_cron():
@@ -47,7 +50,12 @@ async def sms_cron_job():
                 except ValueError:
                     phone = None
                 
-                if (now - last_active > 300) and phone and not profile.get("welcome_sms_sent"):
+                if (
+                    welcome_sms_enabled()
+                    and (now - last_active > 300)
+                    and phone
+                    and not profile.get("welcome_sms_sent")
+                ):
                     print(f"Sending welcome SMS to {phone}...")
                     
                     try:
