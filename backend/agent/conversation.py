@@ -83,7 +83,10 @@ async def run_conversation(
             if block.type != "tool_use":
                 continue
             log.info("[%s]   Tool call: %s(%s)", student_id, block.name, str(block.input)[:120])
-            result_str, profile = handle_tool_call(block.name, block.input, profile)
+            result_str, updated_profile = handle_tool_call(block.name, block.input, profile)
+            if updated_profile is not profile:
+                profile.clear()
+                profile.update(updated_profile)
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": block.id,
@@ -150,7 +153,10 @@ async def stream_conversation(
             if block.type != "tool_use":
                 continue
             log.info("[%s]   Tool call: %s(%s)", student_id, block.name, str(block.input)[:120])
-            result_str, profile = handle_tool_call(block.name, block.input, profile)
+            result_str, updated_profile = handle_tool_call(block.name, block.input, profile)
+            if updated_profile is not profile:
+                profile.clear()
+                profile.update(updated_profile)
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": block.id,

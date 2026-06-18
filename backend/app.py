@@ -254,8 +254,7 @@ async def chat_stream(req: ChatRequest):
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-@app.post("/api/onboard")
-async def onboard(req: OnboardRequest):
+def _prepare_onboarding(req: OnboardRequest) -> tuple[dict, str]:
     profile = empty_profile(req.student_id)
 
     parts = req.name.split(None, 1)
@@ -271,10 +270,6 @@ async def onboard(req: OnboardRequest):
     if req.goals:
         profile = _extract_goals_into_profile(profile, req.goals)
         
-    await db.save_profile(profile)
-
-    profiles[req.student_id] = profile
-
     # Build the first-session internal trigger message Claude will respond to.
     # This is never shown to the student — it primes Claude to open with a
     # stage-appropriate response rather than a blank slate reply.
@@ -316,6 +311,16 @@ async def onboard(req: OnboardRequest):
         f"then deliver your opening response.]"
     )
 
+    return profile, first_message
+
+
+@app.post("/api/onboard")
+async def onboard(req: OnboardRequest):
+    profile, first_message = _prepare_onboarding(req)
+
+    await db.save_profile(profile)
+    profiles[req.student_id] = profile
+
     # Seed the conversation and get Claude's opening response
     history = []
     response_text, updated_profile, updated_history = await run_conversation(
@@ -325,6 +330,10 @@ async def onboard(req: OnboardRequest):
         history=history,
     )
 
+    updated_profile["session_history"] = updated_history
+    updated_profile["last_active_at"] = time.time()
+    await db.save_profile(updated_profile)
+
     profiles[req.student_id] = updated_profile
     conversations[req.student_id] = updated_history
 
@@ -332,6 +341,40 @@ async def onboard(req: OnboardRequest):
         "profile": updated_profile,
         "first_message": response_text,
     }
+
+
+@app.post("/api/onboard/stream")
+async def onboard_stream(req: OnboardRequest):
+    profile, first_message = _prepare_onboarding(req)
+
+    await db.save_profile(profile)
+    profiles[req.student_id] = profile
+    history = []
+
+    async def event_generator():
+        async for event in stream_conversation(
+            student_id=req.student_id,
+            user_message=first_message,
+            profile=profile,
+            history=history,
+        ):
+            yield event
+
+        profile["session_history"] = history
+        profile["last_active_at"] = time.time()
+        await db.save_profile(profile)
+
+        profiles[req.student_id] = profile
+        conversations[req.student_id] = history
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/schools/search")

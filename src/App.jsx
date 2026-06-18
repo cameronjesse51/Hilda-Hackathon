@@ -9,6 +9,54 @@ const SMS_API_URL = import.meta.env.VITE_SMS_API_URL || (isEnvSms ? rawEnvUrl : 
 
 const GRADE_OPTIONS = ['9th', '10th', '11th', '12th']
 
+async function consumeConversationStream(res, { onTextDelta, onProfile }) {
+  if (!res.ok) {
+    const detail = await res.text()
+    throw new Error(`Conversation stream failed: ${res.status} ${detail}`)
+  }
+  if (!res.body) {
+    throw new Error('Conversation stream response has no body')
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  const processEvent = (eventBlock) => {
+    const lines = eventBlock.replace(/\r/g, '').split('\n')
+    const eventType = lines.find(line => line.startsWith('event:'))?.slice(6).trim()
+    const dataText = lines
+      .filter(line => line.startsWith('data:'))
+      .map(line => line.slice(5).trimStart())
+      .join('\n')
+
+    if (!eventType || !dataText) return
+
+    const data = JSON.parse(dataText)
+    if (eventType === 'text_delta') {
+      onTextDelta(data.text || '')
+    } else if (eventType === 'profile_update' || eventType === 'done') {
+      onProfile(data.updated_profile)
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+
+    let boundary = buffer.indexOf('\n\n')
+    while (boundary !== -1) {
+      processEvent(buffer.slice(0, boundary))
+      buffer = buffer.slice(boundary + 2)
+      boundary = buffer.indexOf('\n\n')
+    }
+
+    if (done) break
+  }
+
+  if (buffer.trim()) processEvent(buffer)
+}
+
 function OnboardingNameInput({ onSubmit }) {
   const [name, setName] = useState('')
   const inputRef = useRef(null)
@@ -249,7 +297,6 @@ function ChatScreen({ studentId, initialProfile, onSignOut }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
-  const [onboardingLoading, setOnboardingLoading] = useState(false)
   const [profile, setProfile] = useState(initialProfile || null)
   const [onboardingStep, setOnboardingStep] = useState(initialProfile ? 'done' : 'name')
   const [onboardingData, setOnboardingData] = useState({})
@@ -312,9 +359,11 @@ function ChatScreen({ studentId, initialProfile, onSignOut }) {
   }
 
   const initializeProfile = async (allData) => {
-    setOnboardingLoading(true)
+    setStreaming(true)
+    setMessages(prev => [...prev, { role: 'assistant', text: '' }])
+
     try {
-      const res = await fetch(`${API_URL}/api/onboard`, {
+      const res = await fetch(`${API_URL}/api/onboard/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -326,17 +375,35 @@ function ChatScreen({ studentId, initialProfile, onSignOut }) {
           goals: allData.goals
         })
       })
-      if (!res.ok) {
-        throw new Error(`Onboarding failed: ${res.status}`)
-      }
-      const data = await res.json()
-      setProfile(data.profile)
-      setMessages(prev => [...prev, { role: 'assistant', text: data.first_message }])
+
+      await consumeConversationStream(res, {
+        onTextDelta: (text) => {
+          setMessages(prev => {
+            const updated = [...prev]
+            const last = updated[updated.length - 1]
+            if (last?.role === 'assistant') {
+              updated[updated.length - 1] = { ...last, text: last.text + text }
+            }
+            return updated
+          })
+        },
+        onProfile: setProfile,
+      })
     } catch (e) {
       console.error('Onboarding error:', e)
-      setMessages(prev => [...prev, { role: 'assistant', text: "Sorry, I had trouble saving your profile. Could you try again?" }])
+      setMessages(prev => {
+        const updated = [...prev]
+        const last = updated[updated.length - 1]
+        if (last?.role === 'assistant' && !last.text) {
+          updated[updated.length - 1] = {
+            ...last,
+            text: 'Sorry, I had trouble starting the conversation. Could you try again?'
+          }
+        }
+        return updated
+      })
     } finally {
-      setOnboardingLoading(false)
+      setStreaming(false)
     }
   }
 
@@ -370,41 +437,21 @@ function ChatScreen({ studentId, initialProfile, onSignOut }) {
         body: JSON.stringify({ student_id: studentId, message: userMessage })
       })
 
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop()
-
-        let eventType = ''
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            eventType = line.slice(7)
-          } else if (line.startsWith('data: ')) {
-            const data = JSON.parse(line.slice(6))
-
-            if (eventType === 'text_delta') {
-              setMessages(prev => {
-                const updated = [...prev]
-                const last = updated[updated.length - 1]
-                if (last && last.role === 'assistant') {
-                  updated[updated.length - 1] = { ...last, text: last.text + data.text }
-                }
-                return updated
-              })
-            } else if (eventType === 'profile_update' || eventType === 'done') {
-              setProfile(data.updated_profile)
+      await consumeConversationStream(res, {
+        onTextDelta: (text) => {
+          setMessages(prev => {
+            const updated = [...prev]
+            const last = updated[updated.length - 1]
+            if (last?.role === 'assistant') {
+              updated[updated.length - 1] = { ...last, text: last.text + text }
             }
-          }
-        }
-      }
-    } catch {
+            return updated
+          })
+        },
+        onProfile: setProfile,
+      })
+    } catch (e) {
+      console.error('Conversation stream error:', e)
       setMessages(prev => {
         const updated = [...prev]
         const last = updated[updated.length - 1]
@@ -442,16 +489,6 @@ function ChatScreen({ studentId, initialProfile, onSignOut }) {
             </div>
           ))}
 
-          {onboardingLoading && (
-            <div className="chat-bubble assistant">
-              <span className="bubble-label">Halda</span>
-              <p style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#667085' }}>
-                <span className="spinner" style={{ borderTopColor: '#1e88e5', borderColor: 'rgba(30,136,229,0.2)', borderTopColor: '#1e88e5' }} />
-                Thinking...
-              </p>
-            </div>
-          )}
-
           {onboardingStep === 'name' && (
             <OnboardingNameInput onSubmit={(v) => advanceOnboarding('name', v)} />
           )}
@@ -478,10 +515,10 @@ function ChatScreen({ studentId, initialProfile, onSignOut }) {
               placeholder={inputPlaceholder}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              disabled={streaming || onboardingLoading}
+              disabled={streaming}
             />
-            <button type="submit" disabled={streaming || onboardingLoading || !input.trim()}>
-              {(streaming || onboardingLoading) ? <span className="spinner"></span> : 'Send'}
+            <button type="submit" disabled={streaming || !input.trim()}>
+              {streaming ? <span className="spinner"></span> : 'Send'}
             </button>
           </form>
         )}
