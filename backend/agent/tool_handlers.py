@@ -116,7 +116,10 @@ def _get_clients():
     import os
     if not supabase_client:
         from supabase import create_client
-        supabase_client = create_client(os.environ.get("SUPABASE_URL", ""), os.environ.get("SUPABASE_ANON_KEY", ""))
+        supabase_client = create_client(
+            os.environ["SUPABASE_URL"],
+            os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+        )
     if not openai_client:
         from openai import OpenAI
         openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))

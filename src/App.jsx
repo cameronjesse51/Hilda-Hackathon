@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import './App.css'
+import { normalizePhone } from './phone.js'
 
 const rawEnvUrl = import.meta.env.VITE_API_URL || ''
 const isEnvSms = rawEnvUrl && (rawEnvUrl.includes(':3001') || rawEnvUrl.includes('textbelt'))
@@ -720,13 +721,14 @@ export default function App() {
     })
       .then(r => r.ok ? r.json() : Promise.reject(new Error('Profile not found')))
       .then(data => {
+        setStudentId(data.student_id)
+        setSessionToken(savedToken)
         if (data?.contact?.first_name) {
-          setStudentId(data.student_id)
-          setSessionToken(savedToken)
           setExistingProfile(data)
           setStep('welcome')
         } else {
-          setStep('phone')
+          setExistingProfile(null)
+          setStep('chat')
         }
       })
       .catch(() => {
@@ -755,8 +757,7 @@ export default function App() {
   }
 
   const validatePhone = (phoneStr) => {
-    const digitsOnly = phoneStr.replace(/\D/g, '')
-    return digitsOnly.length === 10
+    return normalizePhone(phoneStr) !== null
   }
 
   const handlePhoneSubmit = async (e) => {
@@ -764,7 +765,7 @@ export default function App() {
     setError('')
 
     if (!validatePhone(phone)) {
-      setError('Please enter a valid 10-digit phone number')
+      setError('Please enter a valid phone number')
       return
     }
 
@@ -773,7 +774,7 @@ export default function App() {
       const response = await fetch(`${SMS_API_URL}/api/send-verification`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone })
+        body: JSON.stringify({ phone: normalizePhone(phone) })
       })
 
       const data = await response.json()
@@ -807,7 +808,7 @@ export default function App() {
       const response = await fetch(`${SMS_API_URL}/api/verify-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, code })
+        body: JSON.stringify({ phone: normalizePhone(phone), code })
       })
 
       const data = await response.json()
@@ -824,7 +825,7 @@ export default function App() {
         return
       }
 
-      const sid = phone.replace(/\D/g, '')
+      const sid = data.student_id
       const token = data.token
       let existing = null
       try {

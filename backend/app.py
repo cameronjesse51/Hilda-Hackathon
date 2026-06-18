@@ -1,7 +1,8 @@
 import os
+import hmac
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -10,14 +11,14 @@ from supabase import create_client
 load_dotenv()
 
 try:
-    from backend.agent.profile import empty_profile
     from backend.agent.conversation import run_conversation, stream_conversation
-    from backend.auth import get_current_student
+    from backend.auth import create_session_token, get_current_student
+    from backend.phone import normalize_phone_e164
     from backend import db
 except ModuleNotFoundError:
-    from agent.profile import empty_profile
     from agent.conversation import run_conversation, stream_conversation
-    from auth import get_current_student
+    from auth import create_session_token, get_current_student
+    from phone import normalize_phone_e164
     import db
 
 import time
@@ -40,7 +41,10 @@ async def sms_cron_job():
             # 1. Idle Timeout Welcome SMS
             for student_id, profile in profiles.items():
                 last_active = profile.get("last_active_at", now)
-                phone = profile.get("contact", {}).get("phone")
+                try:
+                    phone = normalize_phone_e164(profile.get("contact", {}).get("phone"))
+                except ValueError:
+                    phone = None
                 
                 if (now - last_active > 300) and phone and not profile.get("welcome_sms_sent"):
                     print(f"Sending welcome SMS to {phone}...")
@@ -82,10 +86,18 @@ async def sms_cron_job():
             db_now = datetime.now(timezone.utc).isoformat()
             res = supabase.table("scheduled_checkins").select("*").lte("send_at", db_now).is_("sent_at", "null").execute()
             for checkin in res.data or []:
-                student_id = checkin["student_id"]
+                student_id = str(checkin["student_id"])
                 message_body = checkin["message_body"]
-                
-                phone = profiles.get(student_id, {}).get("contact", {}).get("phone")
+
+                profile = profiles.get(student_id)
+                if not profile:
+                    profile = await db.get_profile(student_id)
+                try:
+                    phone = normalize_phone_e164(
+                        (profile or {}).get("contact", {}).get("phone")
+                    )
+                except ValueError:
+                    phone = None
                 if phone:
                     print(f"Sending scheduled SMS to {phone}...")
                     key = os.environ.get("TEXTBELT_KEY", "textbelt")
@@ -146,9 +158,36 @@ class OnboardRequest(BaseModel):
     goals: str = ""
 
 
+class SessionRequest(BaseModel):
+    phone: str
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "service": "api"}
+
+
+@app.post("/auth/session")
+async def issue_session(
+    req: SessionRequest,
+    x_internal_secret: str = Header(default=""),
+):
+    expected_secret = os.environ.get("SESSION_SECRET", "")
+    if len(expected_secret) < 32 or not hmac.compare_digest(x_internal_secret, expected_secret):
+        raise HTTPException(status_code=401, detail="Invalid internal credentials")
+
+    try:
+        phone = normalize_phone_e164(req.phone)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    profile = await db.get_or_create_profile(phone)
+    token, expires_at = create_session_token(profile["student_id"], phone)
+    return {
+        "token": token,
+        "expires_at": expires_at,
+        "student_id": profile["student_id"],
+    }
 
 
 def _extract_goals_into_profile(profile: dict, goals: str) -> dict:
@@ -207,7 +246,7 @@ def _extract_goals_into_profile(profile: dict, goals: str) -> dict:
 async def chat(req: ChatRequest, student_id: str = Depends(get_current_student)):
     profile = await db.get_profile(student_id)
     if not profile:
-        profile = empty_profile(student_id)
+        raise HTTPException(status_code=404, detail="Student profile not found")
 
     history = profile.get("session_history", [])
 
@@ -232,7 +271,7 @@ async def chat(req: ChatRequest, student_id: str = Depends(get_current_student))
 async def chat_stream(req: ChatRequest, student_id: str = Depends(get_current_student)):
     profile = await db.get_profile(student_id)
     if not profile:
-        profile = empty_profile(student_id)
+        raise HTTPException(status_code=404, detail="Student profile not found")
 
     history = profile.get("session_history", [])
 
@@ -254,8 +293,8 @@ async def chat_stream(req: ChatRequest, student_id: str = Depends(get_current_st
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-def _prepare_onboarding(req: OnboardRequest, student_id: str) -> tuple[dict, str]:
-    profile = empty_profile(student_id)
+def _prepare_onboarding(req: OnboardRequest, profile: dict) -> tuple[dict, str]:
+    student_id = profile["student_id"]
 
     parts = req.name.split(None, 1)
     first_name = parts[0]
@@ -316,7 +355,12 @@ def _prepare_onboarding(req: OnboardRequest, student_id: str) -> tuple[dict, str
 
 @app.post("/api/onboard")
 async def onboard(req: OnboardRequest, student_id: str = Depends(get_current_student)):
-    profile, first_message = _prepare_onboarding(req, student_id)
+    profile = await db.get_profile(student_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Student profile not found")
+    if profile.get("contact", {}).get("first_name"):
+        raise HTTPException(status_code=409, detail="Student is already onboarded")
+    profile, first_message = _prepare_onboarding(req, profile)
 
     await db.save_profile(profile)
     profiles[student_id] = profile
@@ -345,7 +389,12 @@ async def onboard(req: OnboardRequest, student_id: str = Depends(get_current_stu
 
 @app.post("/api/onboard/stream")
 async def onboard_stream(req: OnboardRequest, student_id: str = Depends(get_current_student)):
-    profile, first_message = _prepare_onboarding(req, student_id)
+    profile = await db.get_profile(student_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Student profile not found")
+    if profile.get("contact", {}).get("first_name"):
+        raise HTTPException(status_code=409, detail="Student is already onboarded")
+    profile, first_message = _prepare_onboarding(req, profile)
 
     await db.save_profile(profile)
     profiles[student_id] = profile

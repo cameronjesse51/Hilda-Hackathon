@@ -3,7 +3,7 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
-import { createSessionToken } from './session-token.js'
+import { normalizePhone } from './src/phone.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -14,13 +14,12 @@ app.use(cors())
 app.use(express.json())
 
 const TEXTBELT_KEY = process.env.TEXTBELT_KEY || 'textbelt'
+const API_INTERNAL_URL = (
+  process.env.API_INTERNAL_URL || process.env.VITE_API_URL || 'http://localhost:8000'
+).replace(/\/$/, '')
 
 // Store verification codes in memory (in production, use a database with TTL)
 const verificationCodes = new Map()
-
-function normalizePhone(phone) {
-  return String(phone || '').replace(/\D/g, '')
-}
 
 // Generate random 6-digit code
 function generateCode() {
@@ -33,8 +32,8 @@ app.post('/api/send-verification', async (req, res) => {
     const { phone } = req.body
     const normalizedPhone = normalizePhone(phone)
 
-    if (normalizedPhone.length !== 10) {
-      return res.status(400).json({ error: 'Valid 10-digit phone number required' })
+    if (!normalizedPhone) {
+      return res.status(400).json({ error: 'Valid phone number required' })
     }
 
     // Generate code
@@ -83,7 +82,7 @@ app.post('/api/verify-code', async (req, res) => {
     const { phone, code } = req.body
     const normalizedPhone = normalizePhone(phone)
 
-    if (!phone || !code) {
+    if (!normalizedPhone || !code) {
       return res.status(400).json({ error: 'Phone and code required' })
     }
 
@@ -108,16 +107,28 @@ app.post('/api/verify-code', async (req, res) => {
       return res.status(400).json({ error: 'Invalid code' })
     }
 
-    // Code is valid - clean up
-    verificationCodes.delete(normalizedPhone)
+    const sessionResponse = await fetch(`${API_INTERNAL_URL}/auth/session`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-Secret': process.env.SESSION_SECRET || '',
+      },
+      body: JSON.stringify({ phone: normalizedPhone }),
+    })
+    const session = await sessionResponse.json()
+    if (!sessionResponse.ok) {
+      throw new Error(session.detail || 'Failed to create authenticated session')
+    }
 
-    const session = createSessionToken(normalizedPhone)
+    // Consume the OTP only after the authenticated profile/session is ready.
+    verificationCodes.delete(normalizedPhone)
 
     res.json({
       success: true,
       message: 'Phone verified',
       token: session.token,
-      expires_at: session.expiresAt,
+      expires_at: session.expires_at,
+      student_id: session.student_id,
     })
   } catch (error) {
     console.error('Verification error:', error)

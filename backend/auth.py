@@ -5,17 +5,56 @@ import hmac
 import json
 import os
 import time
+import uuid
 
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+try:
+    from backend.phone import normalize_phone_e164
+except ModuleNotFoundError:
+    from phone import normalize_phone_e164
+
 
 bearer = HTTPBearer(auto_error=False)
+SESSION_TTL_SECONDS = 60 * 60 * 24 * 7
 
 
 def _decode_segment(segment: str) -> dict:
     padding = "=" * (-len(segment) % 4)
     return json.loads(base64.urlsafe_b64decode(segment + padding))
+
+
+def _encode_segment(value: dict) -> str:
+    raw = json.dumps(value, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def _session_secret() -> str:
+    secret = os.environ.get("SESSION_SECRET", "")
+    if len(secret) < 32:
+        raise RuntimeError("SESSION_SECRET must be set to at least 32 characters")
+    return secret
+
+
+def create_session_token(student_id: str, phone: str) -> tuple[str, int]:
+    student_id = str(uuid.UUID(student_id))
+    phone = normalize_phone_e164(phone)
+    now = int(time.time())
+    expires_at = now + SESSION_TTL_SECONDS
+    header = _encode_segment({"alg": "HS256", "typ": "JWT"})
+    payload = _encode_segment({
+        "sub": student_id,
+        "phone": phone,
+        "iat": now,
+        "exp": expires_at,
+        "iss": "halda",
+    })
+    unsigned_token = f"{header}.{payload}"
+    signature = base64.urlsafe_b64encode(
+        hmac.new(_session_secret().encode(), unsigned_token.encode(), hashlib.sha256).digest()
+    ).rstrip(b"=").decode()
+    return f"{unsigned_token}.{signature}", expires_at
 
 
 def get_current_student(
@@ -24,9 +63,7 @@ def get_current_student(
     if not credentials or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    secret = os.environ.get("SESSION_SECRET", "")
-    if len(secret) < 32:
-        raise RuntimeError("SESSION_SECRET must be set to at least 32 characters")
+    secret = _session_secret()
 
     try:
         header_segment, payload_segment, signature_segment = credentials.credentials.split(".")
@@ -46,7 +83,7 @@ def get_current_student(
         student_id = payload.get("sub")
         if not isinstance(student_id, str) or not student_id:
             raise ValueError("Missing subject")
-        return student_id
+        return str(uuid.UUID(student_id))
     except (
         ValueError,
         TypeError,

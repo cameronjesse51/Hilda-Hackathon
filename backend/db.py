@@ -1,8 +1,14 @@
 import asyncio
 import json
 import os
+import uuid
 
 from supabase import create_client
+
+try:
+    from backend.phone import normalize_phone_e164
+except ModuleNotFoundError:
+    from phone import normalize_phone_e164
 
 
 def _client():
@@ -34,7 +40,12 @@ def _parse_dict(val):
         return {}
 
 
-def _row_to_profile(row: dict, student_id: str) -> dict:
+def _normalize_student_id(student_id: str) -> str:
+    return str(uuid.UUID(str(student_id)))
+
+
+def _row_to_profile(row: dict) -> dict:
+    student_id = _normalize_student_id(row["student_id"])
     return {
         "student_id": student_id,
         "contact": {
@@ -92,8 +103,13 @@ def _row_to_profile(row: dict, student_id: str) -> dict:
 
 
 def _profile_to_row(profile: dict) -> dict:
+    student_id = _normalize_student_id(profile["student_id"])
+    phone = normalize_phone_e164(profile["contact"]["phone"])
+    profile["student_id"] = student_id
+    profile["contact"]["phone"] = phone
     return {
-        "phone": profile["student_id"],
+        "student_id": student_id,
+        "phone": phone,
         "first_name": profile["contact"]["first_name"],
         "last_name": profile["contact"]["last_name"],
         "email": profile["contact"]["email"],
@@ -132,27 +148,79 @@ def _profile_to_row(profile: dict) -> dict:
 
 
 def _sync_get_profile(student_id: str):
-    result = _client().table("student_profiles").select("*").eq("phone", student_id).execute()
+    student_id = _normalize_student_id(student_id)
+    result = _client().table("student_profiles").select("*").eq("student_id", student_id).execute()
     if result.data:
-        return _row_to_profile(result.data[0], student_id)
+        return _row_to_profile(result.data[0])
+    return None
+
+
+def _sync_get_profile_by_phone(phone: str):
+    phone = normalize_phone_e164(phone)
+    result = _client().table("student_profiles").select("*").eq("phone", phone).execute()
+    if result.data:
+        return _row_to_profile(result.data[0])
     return None
 
 
 def _sync_save_profile(profile: dict):
-    row = _profile_to_row(profile)
-    existing = _client().table("student_profiles").select("phone").eq("phone", profile["student_id"]).execute()
+    student_id = _normalize_student_id(profile["student_id"])
+    existing = (
+        _client()
+        .table("student_profiles")
+        .select("student_id,phone")
+        .eq("student_id", student_id)
+        .execute()
+    )
     if existing.data:
-        _client().table("student_profiles").update(row).eq("phone", profile["student_id"]).execute()
+        # The verified login phone is an identity attribute, not agent-editable profile data.
+        profile["contact"]["phone"] = existing.data[0]["phone"]
+    row = _profile_to_row(profile)
+    if existing.data:
+        _client().table("student_profiles").update(row).eq("student_id", student_id).execute()
     else:
         _client().table("student_profiles").insert(row).execute()
 
 
 def _sync_save_messages(student_id: str, messages: list):
-    _client().table("student_profiles").update({"session_history": messages}).eq("phone", student_id).execute()
+    student_id = _normalize_student_id(student_id)
+    _client().table("student_profiles").update({"session_history": messages}).eq("student_id", student_id).execute()
+
+
+def _sync_get_or_create_profile(phone: str):
+    phone = normalize_phone_e164(phone)
+    existing = _sync_get_profile_by_phone(phone)
+    if existing:
+        return existing
+
+    try:
+        from backend.agent.profile import empty_profile
+    except ModuleNotFoundError:
+        from agent.profile import empty_profile
+
+    profile = empty_profile(str(uuid.uuid4()))
+    profile["contact"]["phone"] = phone
+    try:
+        _sync_save_profile(profile)
+        return profile
+    except Exception:
+        # A concurrent verification may have inserted the unique phone first.
+        existing = _sync_get_profile_by_phone(phone)
+        if existing:
+            return existing
+        raise
 
 
 async def get_profile(student_id: str):
     return await asyncio.to_thread(_sync_get_profile, student_id)
+
+
+async def get_profile_by_phone(phone: str):
+    return await asyncio.to_thread(_sync_get_profile_by_phone, phone)
+
+
+async def get_or_create_profile(phone: str):
+    return await asyncio.to_thread(_sync_get_or_create_profile, phone)
 
 
 async def save_profile(profile: dict):
