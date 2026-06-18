@@ -334,9 +334,8 @@ async def issue_demo_session(x_demo_phone: str = Header(default="")):
 
     try:
         profile = await db.get_or_create_profile(phone)
-        if not profile.get("contact", {}).get("first_name"):
-            profile = _seed_demo_profile(profile, phone)
-            await db.save_profile(profile)
+        profile = _seed_demo_profile(profile, phone)
+        await db.save_profile(profile)
         token, expires_at = create_session_token(profile["student_id"], phone)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Demo login failed: {exc}")
