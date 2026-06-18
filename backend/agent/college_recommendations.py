@@ -127,6 +127,10 @@ def _program_status(row: dict, requested: str | None) -> tuple[str, str | None]:
     if not requested:
         return "unknown", str(cip_code) if cip_code else None
 
+    enriched = _string_list(row.get("enriched_programs"))
+    if enriched:
+        return "available", str(cip_code) if cip_code else None
+
     requested_lower = requested.lower()
     programs = _string_list(_first(row, "programs", "program_names", "majors"))
     if programs is not None:
