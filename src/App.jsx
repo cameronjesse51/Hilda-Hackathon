@@ -303,7 +303,7 @@ function ChatScreen({ studentId, initialProfile, onSignOut }) {
         setMessages(prev => [
           ...prev,
           { role: 'user', text: value },
-          { role: 'assistant', text: "Almost there — what's on your mind when you think about after high school? Doesn't have to be a plan, just whatever comes to mind." }
+          { role: 'assistant', text: "Almost there — what are your plans after high school? Doesn't have to be a set plan, just whatever comes to mind." }
         ])
         setOnboardingStep('goals')
         break
