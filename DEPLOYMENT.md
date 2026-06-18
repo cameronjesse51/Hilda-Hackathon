@@ -3,6 +3,9 @@
 This repository deploys as two Railway services from the same GitHub source.
 Each service must use its own root directory and config file.
 
+Set the same `SESSION_SECRET` environment variable on both services. It must be
+at least 32 random characters; changing it signs every user out.
+
 ## Web service
 
 - Root Directory: `/`

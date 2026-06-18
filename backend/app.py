@@ -1,7 +1,7 @@
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -12,10 +12,12 @@ load_dotenv()
 try:
     from backend.agent.profile import empty_profile
     from backend.agent.conversation import run_conversation, stream_conversation
+    from backend.auth import get_current_student
     from backend import db
 except ModuleNotFoundError:
     from agent.profile import empty_profile
     from agent.conversation import run_conversation, stream_conversation
+    from auth import get_current_student
     import db
 
 import time
@@ -128,7 +130,6 @@ GRADE_TO_STAGE = {
 
 
 class ChatRequest(BaseModel):
-    student_id: str
     message: str
 
 
@@ -138,7 +139,6 @@ class ChatResponse(BaseModel):
 
 
 class OnboardRequest(BaseModel):
-    student_id: str
     name: str
     grade: str
     zip: str
@@ -204,15 +204,15 @@ def _extract_goals_into_profile(profile: dict, goals: str) -> dict:
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest):
-    profile = await db.get_profile(req.student_id)
+async def chat(req: ChatRequest, student_id: str = Depends(get_current_student)):
+    profile = await db.get_profile(student_id)
     if not profile:
-        profile = empty_profile(req.student_id)
+        profile = empty_profile(student_id)
 
     history = profile.get("session_history", [])
 
     response_text, updated_profile, updated_history = await run_conversation(
-        student_id=req.student_id,
+        student_id=student_id,
         user_message=req.message,
         profile=profile,
         history=history,
@@ -222,23 +222,23 @@ async def chat(req: ChatRequest):
     updated_profile["last_active_at"] = time.time()
     await db.save_profile(updated_profile)
     
-    profiles[req.student_id] = updated_profile
-    conversations[req.student_id] = updated_history
+    profiles[student_id] = updated_profile
+    conversations[student_id] = updated_history
 
     return ChatResponse(response=response_text, updated_profile=updated_profile)
 
 
 @app.post("/chat/stream")
-async def chat_stream(req: ChatRequest):
-    profile = await db.get_profile(req.student_id)
+async def chat_stream(req: ChatRequest, student_id: str = Depends(get_current_student)):
+    profile = await db.get_profile(student_id)
     if not profile:
-        profile = empty_profile(req.student_id)
+        profile = empty_profile(student_id)
 
     history = profile.get("session_history", [])
 
     async def event_generator():
         async for event in stream_conversation(
-            student_id=req.student_id,
+            student_id=student_id,
             user_message=req.message,
             profile=profile,
             history=history,
@@ -248,14 +248,14 @@ async def chat_stream(req: ChatRequest):
         profile["last_active_at"] = time.time()
         await db.save_profile(profile)
         
-        profiles[req.student_id] = profile
-        conversations[req.student_id] = history
+        profiles[student_id] = profile
+        conversations[student_id] = history
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-def _prepare_onboarding(req: OnboardRequest) -> tuple[dict, str]:
-    profile = empty_profile(req.student_id)
+def _prepare_onboarding(req: OnboardRequest, student_id: str) -> tuple[dict, str]:
+    profile = empty_profile(student_id)
 
     parts = req.name.split(None, 1)
     first_name = parts[0]
@@ -303,7 +303,7 @@ def _prepare_onboarding(req: OnboardRequest) -> tuple[dict, str]:
     }
 
     first_message = (
-        f"[SYSTEM: First session for student {req.student_id}. "
+        f"[SYSTEM: First session for student {student_id}. "
         f"Student just completed onboarding. Their stated goals: \"{req.goals}\". "
         f"{stage_context.get(stage, stage_context['sophomore'])} "
         f"Their pre-extracted profile context is available in the system prompt. "
@@ -315,16 +315,16 @@ def _prepare_onboarding(req: OnboardRequest) -> tuple[dict, str]:
 
 
 @app.post("/api/onboard")
-async def onboard(req: OnboardRequest):
-    profile, first_message = _prepare_onboarding(req)
+async def onboard(req: OnboardRequest, student_id: str = Depends(get_current_student)):
+    profile, first_message = _prepare_onboarding(req, student_id)
 
     await db.save_profile(profile)
-    profiles[req.student_id] = profile
+    profiles[student_id] = profile
 
     # Seed the conversation and get Claude's opening response
     history = []
     response_text, updated_profile, updated_history = await run_conversation(
-        student_id=req.student_id,
+        student_id=student_id,
         user_message=first_message,
         profile=profile,
         history=history,
@@ -334,8 +334,8 @@ async def onboard(req: OnboardRequest):
     updated_profile["last_active_at"] = time.time()
     await db.save_profile(updated_profile)
 
-    profiles[req.student_id] = updated_profile
-    conversations[req.student_id] = updated_history
+    profiles[student_id] = updated_profile
+    conversations[student_id] = updated_history
 
     return {
         "profile": updated_profile,
@@ -344,16 +344,16 @@ async def onboard(req: OnboardRequest):
 
 
 @app.post("/api/onboard/stream")
-async def onboard_stream(req: OnboardRequest):
-    profile, first_message = _prepare_onboarding(req)
+async def onboard_stream(req: OnboardRequest, student_id: str = Depends(get_current_student)):
+    profile, first_message = _prepare_onboarding(req, student_id)
 
     await db.save_profile(profile)
-    profiles[req.student_id] = profile
+    profiles[student_id] = profile
     history = []
 
     async def event_generator():
         async for event in stream_conversation(
-            student_id=req.student_id,
+            student_id=student_id,
             user_message=first_message,
             profile=profile,
             history=history,
@@ -364,8 +364,8 @@ async def onboard_stream(req: OnboardRequest):
         profile["last_active_at"] = time.time()
         await db.save_profile(profile)
 
-        profiles[req.student_id] = profile
-        conversations[req.student_id] = history
+        profiles[student_id] = profile
+        conversations[student_id] = history
 
     return StreamingResponse(
         event_generator(),
@@ -399,8 +399,8 @@ async def search_schools(q: str = Query(""), zip: str = Query("")):
     return {"schools": result.data or []}
 
 
-@app.get("/profile/{student_id}")
-async def get_profile(student_id: str):
+@app.get("/profile/me")
+async def get_profile(student_id: str = Depends(get_current_student)):
     profile = await db.get_profile(student_id)
     if not profile:
         raise HTTPException(status_code=404, detail="Student not found")

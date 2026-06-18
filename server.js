@@ -3,6 +3,7 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
+import { createSessionToken } from './session-token.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -17,6 +18,10 @@ const TEXTBELT_KEY = process.env.TEXTBELT_KEY || 'textbelt'
 // Store verification codes in memory (in production, use a database with TTL)
 const verificationCodes = new Map()
 
+function normalizePhone(phone) {
+  return String(phone || '').replace(/\D/g, '')
+}
+
 // Generate random 6-digit code
 function generateCode() {
   return Math.floor(100000 + Math.random() * 900000).toString()
@@ -26,16 +31,17 @@ function generateCode() {
 app.post('/api/send-verification', async (req, res) => {
   try {
     const { phone } = req.body
+    const normalizedPhone = normalizePhone(phone)
 
-    if (!phone) {
-      return res.status(400).json({ error: 'Phone number required' })
+    if (normalizedPhone.length !== 10) {
+      return res.status(400).json({ error: 'Valid 10-digit phone number required' })
     }
 
     // Generate code
     const code = generateCode()
 
     // Store code with 10-minute expiry
-    verificationCodes.set(phone, {
+    verificationCodes.set(normalizedPhone, {
       code,
       expiresAt: Date.now() + 10 * 60 * 1000,
       attempts: 0
@@ -46,7 +52,7 @@ app.post('/api/send-verification', async (req, res) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        phone,
+        phone: normalizedPhone,
         message: `Your Halda verification code is: ${code}`,
         key: TEXTBELT_KEY
       })
@@ -75,24 +81,25 @@ app.post('/api/send-verification', async (req, res) => {
 app.post('/api/verify-code', async (req, res) => {
   try {
     const { phone, code } = req.body
+    const normalizedPhone = normalizePhone(phone)
 
     if (!phone || !code) {
       return res.status(400).json({ error: 'Phone and code required' })
     }
 
-    const stored = verificationCodes.get(phone)
+    const stored = verificationCodes.get(normalizedPhone)
 
     if (!stored) {
       return res.status(400).json({ error: 'No verification code found' })
     }
 
     if (Date.now() > stored.expiresAt) {
-      verificationCodes.delete(phone)
+      verificationCodes.delete(normalizedPhone)
       return res.status(400).json({ error: 'Code expired' })
     }
 
     if (stored.attempts >= 3) {
-      verificationCodes.delete(phone)
+      verificationCodes.delete(normalizedPhone)
       return res.status(400).json({ error: 'Too many attempts' })
     }
 
@@ -102,41 +109,19 @@ app.post('/api/verify-code', async (req, res) => {
     }
 
     // Code is valid - clean up
-    verificationCodes.delete(phone)
+    verificationCodes.delete(normalizedPhone)
+
+    const session = createSessionToken(normalizedPhone)
 
     res.json({
       success: true,
       message: 'Phone verified',
-      phone
+      token: session.token,
+      expires_at: session.expiresAt,
     })
   } catch (error) {
     console.error('Verification error:', error)
     res.status(500).json({ error: 'Verification failed' })
-  }
-})
-
-// Get profile by phone number
-app.get('/api/profile/:phone', async (req, res) => {
-  try {
-    const { phone } = req.params
-    const response = await fetch(
-      `${process.env.SUPABASE_URL}/rest/v1/student_profiles?phone=eq.${phone}&limit=1`,
-      {
-        headers: {
-          apikey: process.env.SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${process.env.SUPABASE_ANON_KEY}`,
-        }
-      }
-    )
-    const data = await response.json()
-    if (data.length > 0) {
-      res.json(data[0])
-    } else {
-      res.status(404).json({ error: 'Profile not found' })
-    }
-  } catch (error) {
-    console.error('Profile fetch error:', error)
-    res.status(500).json({ error: 'Failed to fetch profile' })
   }
 })
 

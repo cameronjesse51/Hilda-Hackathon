@@ -293,7 +293,7 @@ function OnboardingSchoolSearch({ zip, onSelect }) {
   )
 }
 
-function ChatScreen({ studentId, initialProfile, onSignOut }) {
+function ChatScreen({ sessionToken, initialProfile, onSignOut }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
@@ -364,9 +364,11 @@ function ChatScreen({ studentId, initialProfile, onSignOut }) {
     try {
       const res = await fetch(`${API_URL}/api/onboard/stream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionToken}`,
+        },
         body: JSON.stringify({
-          student_id: studentId,
           name: allData.name,
           grade: allData.grade,
           zip: allData.zip,
@@ -432,8 +434,11 @@ function ChatScreen({ studentId, initialProfile, onSignOut }) {
     try {
       const res = await fetch(`${API_URL}/chat/stream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ student_id: studentId, message: userMessage })
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify({ message: userMessage })
       })
 
       await consumeConversationStream(res, {
@@ -701,38 +706,49 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [studentId, setStudentId] = useState('')
+  const [sessionToken, setSessionToken] = useState('')
   const [existingProfile, setExistingProfile] = useState(null)
 
   useEffect(() => {
-    const savedPhone = localStorage.getItem('halda_phone')
-    if (!savedPhone) {
+    const savedToken = localStorage.getItem('halda_session')
+    if (!savedToken) {
       setStep('phone')
       return
     }
-    fetch(`${API_URL}/profile/${savedPhone}`)
+    fetch(`${API_URL}/profile/me`, {
+      headers: { Authorization: `Bearer ${savedToken}` },
+    })
       .then(r => r.ok ? r.json() : Promise.reject(new Error('Profile not found')))
       .then(data => {
         if (data?.contact?.first_name) {
-          setStudentId(savedPhone)
+          setStudentId(data.student_id)
+          setSessionToken(savedToken)
           setExistingProfile(data)
           setStep('welcome')
         } else {
           setStep('phone')
         }
       })
-      .catch(() => setStep('phone'))
+      .catch(() => {
+        localStorage.removeItem('halda_session')
+        setStep('phone')
+      })
   }, [])
 
-  const startChat = (id, profile = null) => {
-    const sid = id || phone.replace(/\D/g, '')
-    localStorage.setItem('halda_phone', sid)
-    setStudentId(sid)
+  const startChat = (id, token, profile = null) => {
+    localStorage.setItem('halda_session', token)
+    localStorage.removeItem('halda_phone')
+    localStorage.removeItem('studentPhone')
+    setStudentId(id)
+    setSessionToken(token)
     setExistingProfile(profile)
     setStep('chat')
   }
 
   const handleSignOut = () => {
+    localStorage.removeItem('halda_session')
     localStorage.removeItem('halda_phone')
+    localStorage.removeItem('studentPhone')
     setExistingProfile(null)
     setStudentId('')
     setStep('phone')
@@ -753,8 +769,6 @@ export default function App() {
     }
 
     setLoading(true)
-    const apiUrl = API_URL
-
     try {
       const response = await fetch(`${SMS_API_URL}/api/send-verification`, {
         method: 'POST',
@@ -770,7 +784,6 @@ export default function App() {
         return
       }
 
-      localStorage.setItem('studentPhone', phone)
       setLoading(false)
       setStep('verify')
     } catch {
@@ -805,10 +818,19 @@ export default function App() {
         return
       }
 
+      if (!data.token) {
+        setError('Verification succeeded without a session. Please try again.')
+        setLoading(false)
+        return
+      }
+
       const sid = phone.replace(/\D/g, '')
+      const token = data.token
       let existing = null
       try {
-        const profileRes = await fetch(`${API_URL}/profile/${sid}`)
+        const profileRes = await fetch(`${API_URL}/profile/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
         const profileData = await profileRes.json()
         if (profileRes.ok && profileData.contact?.first_name) {
           existing = profileData
@@ -816,7 +838,7 @@ export default function App() {
       } catch { /* no profile found, treat as new user */ }
 
       setLoading(false)
-      startChat(sid, existing)
+      startChat(sid, token, existing)
     } catch {
       setError('Network error. Please try again.')
       setLoading(false)
@@ -826,27 +848,20 @@ export default function App() {
   if (step === 'loading') return null
 
   if (step === 'chat') {
-    return <ChatScreen studentId={studentId} initialProfile={existingProfile} onSignOut={handleSignOut} />
+    return <ChatScreen sessionToken={sessionToken} initialProfile={existingProfile} onSignOut={handleSignOut} />
   }
 
   return (
     <div className="container">
       <div className="branding-side">
         <img src="/halda_logo_white.svg" alt="Halda" className="halda-logo" />
-        <button
-          type="button"
-          className="dev-skip-btn"
-          onClick={() => startChat('test-jordan')}
-        >
-          Skip to Chat (dev)
-        </button>
       </div>
 
       <div className="form-side">
         {step === 'welcome' && (
           <WelcomeBack
             profile={existingProfile}
-            onContinue={() => startChat(studentId, existingProfile)}
+            onContinue={() => startChat(studentId, sessionToken, existingProfile)}
             onSignOut={handleSignOut}
           />
         )}
