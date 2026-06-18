@@ -33,8 +33,8 @@ def resolve_cip_codes(db, program_text: str) -> list[str]:
     try:
         catalog_rows = (
             db.table("study_areas_by_code")
-            .select('"CIP_DESC"')
-            .ilike('"CIP_DESC"', f"%{program_text}%")
+            .select("cipdesc")
+            .ilike("cipdesc", f"%{program_text}%")
             .execute()
             .data or []
         )
@@ -43,7 +43,7 @@ def resolve_cip_codes(db, program_text: str) -> list[str]:
             return []
 
         matched_descriptions = [
-            row["CIP_DESC"] for row in catalog_rows if row.get("CIP_DESC")
+            row["cipdesc"] for row in catalog_rows if row.get("cipdesc")
         ]
         if not matched_descriptions:
             _cip_cache[cache_key] = []
