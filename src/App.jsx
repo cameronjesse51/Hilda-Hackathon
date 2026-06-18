@@ -13,7 +13,14 @@ const DEV_AUTH_ENABLED = import.meta.env.VITE_ENABLE_DEV_AUTH === 'true'
 
 const GRADE_OPTIONS = ['9th', '10th', '11th', '12th']
 
-async function consumeConversationStream(res, { onTextDelta, onProfile, onCollegeResults }) {
+// Maps internal tool names to student-facing search labels
+const TOOL_LABELS = {
+  search_scholarships: '🔍 Searching for scholarships…',
+  search_colleges:     '🏫 Finding college matches…',
+  schedule_checkin:    '📅 Scheduling a check-in…',
+}
+
+async function consumeConversationStream(res, { onTextDelta, onProfile, onCollegeResults, onScholarshipResults, onToolCall }) {
   if (!res.ok) {
     const detail = await res.text()
     throw new Error(`Conversation stream failed: ${res.status} ${detail}`)
@@ -38,12 +45,16 @@ async function consumeConversationStream(res, { onTextDelta, onProfile, onColleg
 
     const data = JSON.parse(dataText)
     if (eventType === 'text_delta') {
+      onToolCall?.(null)          // tool finished — clear pill on first text
       onTextDelta(data.text || '')
+    } else if (eventType === 'tool_call') {
+      onToolCall?.(data.tool || null)
     } else if (eventType === 'college_results') {
       onCollegeResults?.(data)
     } else if (eventType === 'scholarship_results') {
       onScholarshipResults?.(data)
     } else if (eventType === 'profile_update' || eventType === 'done') {
+      onToolCall?.(null)          // ensure pill clears at end
       onProfile(data.updated_profile)
     }
   }
@@ -305,6 +316,7 @@ function ChatScreen({ sessionToken, initialProfile, onSignOut }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
+  const [activeSearch, setActiveSearch] = useState(null)  // tool name or null
   const [profile, setProfile] = useState(initialProfile || null)
   const [onboardingStep, setOnboardingStep] = useState(initialProfile ? 'done' : 'name')
   const [onboardingData, setOnboardingData] = useState({})
@@ -423,6 +435,7 @@ function ChatScreen({ sessionToken, initialProfile, onSignOut }) {
         onProfile: setProfile,
         onCollegeResults: attachCollegeResults,
         onScholarshipResults: attachScholarshipResults,
+        onToolCall: setActiveSearch,
       })
     } catch (e) {
       console.error('Onboarding error:', e)
@@ -489,6 +502,7 @@ function ChatScreen({ sessionToken, initialProfile, onSignOut }) {
         onProfile: setProfile,
         onCollegeResults: attachCollegeResults,
         onScholarshipResults: attachScholarshipResults,
+        onToolCall: setActiveSearch,
       })
     } catch (e) {
       console.error('Conversation stream error:', e)
@@ -556,6 +570,17 @@ function ChatScreen({ sessionToken, initialProfile, onSignOut }) {
               zip={onboardingData.zip || ''}
               onSelect={(v) => advanceOnboarding('school', v)}
             />
+          )}
+
+          {activeSearch && (
+            <div className="searching-pill" aria-live="polite" aria-label="Halda is working">
+              <span className="searching-dot" />
+              <span className="searching-dot" />
+              <span className="searching-dot" />
+              <span className="searching-label">
+                {TOOL_LABELS[activeSearch] ?? '⚙️ Working…'}
+              </span>
+            </div>
           )}
 
           <div ref={messagesEndRef} />
