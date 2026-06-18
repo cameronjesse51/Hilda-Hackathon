@@ -20,6 +20,12 @@ _cip_cache: dict[str, list[str]] = {}
 def resolve_cip_codes(db, program_text: str) -> list[str]:
     """Look up CIP codes for a program name using the study_areas_by_code catalog.
 
+    study_areas_by_code schema:
+        cipcode     bigint  NOT NULL
+        cipdesc     text
+        uuid        uuid    NOT NULL
+        exists_in_institution  boolean
+
     Returns a list of CIP code strings, or an empty list if resolution fails
     (which lets the existing ILIKE fallback in the RPC take over).
     """
@@ -33,8 +39,9 @@ def resolve_cip_codes(db, program_text: str) -> list[str]:
     try:
         catalog_rows = (
             db.table("study_areas_by_code")
-            .select("cipdesc")
+            .select("cipcode")
             .ilike("cipdesc", f"%{program_text}%")
+            .eq("exists_in_institution", True)
             .execute()
             .data or []
         )
@@ -42,24 +49,10 @@ def resolve_cip_codes(db, program_text: str) -> list[str]:
             _cip_cache[cache_key] = []
             return []
 
-        matched_descriptions = [
-            row["cipdesc"] for row in catalog_rows if row.get("cipdesc")
-        ]
-        if not matched_descriptions:
-            _cip_cache[cache_key] = []
-            return []
-
-        specialty_rows = (
-            db.table("institution_specialties")
-            .select('"CIPCODE"')
-            .in_('"CIPDESC"', matched_descriptions)
-            .execute()
-            .data or []
-        )
         codes = sorted({
-            str(row["CIPCODE"])
-            for row in specialty_rows
-            if row.get("CIPCODE") is not None
+            str(row["cipcode"])
+            for row in catalog_rows
+            if row.get("cipcode") is not None
         })
         _cip_cache[cache_key] = codes
         return codes

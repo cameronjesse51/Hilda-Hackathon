@@ -19,6 +19,9 @@ class FakeQuery:
     def ilike(self, field, pattern):
         return self
 
+    def eq(self, field, value):
+        return self
+
     def in_(self, field, values):
         return self
 
@@ -30,33 +33,23 @@ class CipResolverTests(unittest.TestCase):
     def setUp(self):
         _cip_cache.clear()
 
-    def _make_db(self, catalog_data, specialty_data):
+    def _make_db(self, catalog_data):
         db = MagicMock()
         catalog_query = FakeQuery(catalog_data)
-        specialty_query = FakeQuery(specialty_data)
-        def table_router(name):
-            if name == "study_areas_by_code":
-                return catalog_query
-            if name == "institution_specialties":
-                return specialty_query
-            raise AssertionError(f"Unexpected table: {name}")
-        db.table = table_router
+        db.table = MagicMock(return_value=catalog_query)
         return db
 
     def test_resolves_program_to_cip_codes(self):
-        db = self._make_db(
-            catalog_data=[{"CIP_DESC": "Computer and Information Sciences"}],
-            specialty_data=[
-                {"CIPCODE": "11.0101"},
-                {"CIPCODE": "11.0701"},
-                {"CIPCODE": "11.0101"},
-            ],
-        )
+        db = self._make_db([
+            {"cipcode": 110101},
+            {"cipcode": 110701},
+            {"cipcode": 110101},
+        ])
         codes = resolve_cip_codes(db, "Computer Science")
-        self.assertEqual(codes, ["11.0101", "11.0701"])
+        self.assertEqual(codes, ["110101", "110701"])
 
     def test_returns_empty_for_unknown_program(self):
-        db = self._make_db(catalog_data=[], specialty_data=[])
+        db = self._make_db([])
         codes = resolve_cip_codes(db, "Underwater Basket Weaving")
         self.assertEqual(codes, [])
 
@@ -66,10 +59,7 @@ class CipResolverTests(unittest.TestCase):
         db.table.assert_not_called()
 
     def test_caches_results(self):
-        db = self._make_db(
-            catalog_data=[{"CIP_DESC": "Nursing"}],
-            specialty_data=[{"CIPCODE": "51.3801"}],
-        )
+        db = self._make_db([{"cipcode": 513801}])
         first = resolve_cip_codes(db, "Nursing")
         second = resolve_cip_codes(db, "nursing")
         self.assertEqual(first, second)

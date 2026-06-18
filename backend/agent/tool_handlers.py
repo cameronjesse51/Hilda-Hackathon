@@ -272,7 +272,7 @@ def _enrich_program_details(
             .in_('"UNITID"', ids)
         )
         if resolved_cip_codes:
-            query = query.in_('"CIPCODE"', resolved_cip_codes)
+            query = query.in_('"CIPCODE"', [int(c) for c in resolved_cip_codes])
         elif requested_program:
             query = query.ilike('"CIPDESC"', f"%{requested_program}%")
         specialty_rows = query.execute().data or []
@@ -319,7 +319,7 @@ def _program_first_fallback(
             .select('"UNITID","INSTNM","CIPDESC","CIPCODE","CREDDESC","AWARDS_LAST_YEAR"')
         )
         if resolved_cip_codes:
-            query = query.in_('"CIPCODE"', resolved_cip_codes)
+            query = query.in_('"CIPCODE"', [int(c) for c in resolved_cip_codes])
         elif requested_program:
             query = query.ilike('"CIPDESC"', f"%{requested_program}%")
 
