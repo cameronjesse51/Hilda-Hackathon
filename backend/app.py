@@ -1,7 +1,7 @@
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -403,5 +403,5 @@ async def search_schools(q: str = Query(""), zip: str = Query("")):
 async def get_profile(student_id: str):
     profile = await db.get_profile(student_id)
     if not profile:
-        return {"error": "Student not found"}
+        raise HTTPException(status_code=404, detail="Student not found")
     return profile

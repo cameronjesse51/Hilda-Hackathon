@@ -709,10 +709,10 @@ export default function App() {
       setStep('phone')
       return
     }
-    fetch(`${API_URL}/api/profile/${savedPhone}`)
-      .then(r => r.json())
+    fetch(`${API_URL}/profile/${savedPhone}`)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error('Profile not found')))
       .then(data => {
-        if (data?.first_name) {
+        if (data?.contact?.first_name) {
           setStudentId(savedPhone)
           setExistingProfile(data)
           setStep('welcome')
