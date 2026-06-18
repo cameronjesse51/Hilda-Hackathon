@@ -1046,12 +1046,11 @@ function Success({ phone, onStartChat }) {
 }
 
 function WelcomeBack({ profile, onContinue, onSignOut }) {
-  const name = profile?.first_name || 'there'
   return (
     <div className="form-container">
-      <h1>Welcome back, {name}!</h1>
+      <h1>Welcome back!</h1>
       <p className="subtitle">Ready to continue your college journey?</p>
-      <button onClick={onContinue} style={{ marginBottom: 12 }}>Continue as {name}</button>
+      <button onClick={onContinue} style={{ marginBottom: 12 }}>Continue to login</button>
       <button onClick={onSignOut} style={{ background: 'transparent', color: '#888', border: '1px solid #ddd', marginTop: 4 }}>
         Sign in as someone else
       </button>
