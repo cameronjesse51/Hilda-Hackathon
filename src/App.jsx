@@ -537,7 +537,7 @@ function Success({ phone, onStartChat }) {
 }
 
 function WelcomeBack({ profile, onContinue, onSignOut }) {
-  const name = profile?.contact?.first_name || 'there'
+  const name = profile?.first_name || 'there'
   return (
     <div className="form-container">
       <h1>Welcome back, {name}!</h1>
@@ -565,10 +565,10 @@ export default function App() {
       setStep('phone')
       return
     }
-    fetch(`${API_URL}/profile/${savedPhone}`)
+    fetch(`${API_URL}/api/profile/${savedPhone}`)
       .then(r => r.json())
       .then(data => {
-        if (data?.contact?.first_name) {
+        if (data?.first_name) {
           setStudentId(savedPhone)
           setExistingProfile(data)
           setStep('welcome')

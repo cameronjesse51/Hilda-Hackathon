@@ -115,6 +115,31 @@ app.post('/api/verify-code', async (req, res) => {
   }
 })
 
+// Get profile by phone number
+app.get('/api/profile/:phone', async (req, res) => {
+  try {
+    const { phone } = req.params
+    const response = await fetch(
+      `${process.env.SUPABASE_URL}/rest/v1/student_profiles?phone=eq.${phone}&limit=1`,
+      {
+        headers: {
+          apikey: process.env.SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${process.env.SUPABASE_ANON_KEY}`,
+        }
+      }
+    )
+    const data = await response.json()
+    if (data.length > 0) {
+      res.json(data[0])
+    } else {
+      res.status(404).json({ error: 'Profile not found' })
+    }
+  } catch (error) {
+    console.error('Profile fetch error:', error)
+    res.status(500).json({ error: 'Failed to fetch profile' })
+  }
+})
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' })
