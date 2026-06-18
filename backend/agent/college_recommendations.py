@@ -17,6 +17,10 @@ from typing import Any
 SCHEMA_VERSION = "1.0"
 EVENT_NAME = "college_results"
 DEFAULT_SOURCE_NAME = "U.S. Department of Education College Scorecard"
+HIGHLY_SELECTIVE_RATE = 0.20
+REACH_RATE = 0.35
+LIKELY_RATE = 0.70
+GPA_MARGIN = 0.15
 
 
 def _first(row: dict, *keys: str) -> Any:
@@ -138,44 +142,83 @@ def _program_status(row: dict, requested: str | None) -> tuple[str, str | None]:
 
 def _classification(row: dict, profile: dict, admission_rate: float | None) -> dict:
     student_gpa = _number(profile.get("academic", {}).get("gpa"))
+    gpa_low = _number(_first(row, "gpa_25th", "gpa_25", "admitted_gpa_25th"))
+    gpa_high = _number(_first(row, "gpa_75th", "gpa_75", "admitted_gpa_75th"))
     typical_gpa = _number(_first(row, "average_gpa", "avg_gpa", "admitted_gpa"))
 
-    if admission_rate is not None and admission_rate <= 0.20:
+    academic_signal = None
+    academic_evidence = None
+    if student_gpa is not None and gpa_low is not None and gpa_high is not None:
+        if student_gpa < gpa_low:
+            academic_signal = "below"
+        elif student_gpa > gpa_high:
+            academic_signal = "above"
+        else:
+            academic_signal = "within"
+        academic_evidence = (
+            f"Your {student_gpa:g} GPA is {academic_signal} the institution's "
+            f"reported {gpa_low:g}-{gpa_high:g} GPA range."
+        )
+    elif student_gpa is not None and typical_gpa is not None:
+        difference = float(student_gpa) - float(typical_gpa)
+        if difference < -GPA_MARGIN:
+            academic_signal = "below"
+        elif difference >= GPA_MARGIN:
+            academic_signal = "above"
+        else:
+            academic_signal = "within"
+        academic_evidence = (
+            f"Your {student_gpa:g} GPA is {academic_signal} the institution's "
+            f"reported {typical_gpa:g} typical GPA."
+        )
+
+    rate_evidence = (
+        f"The institution's overall admission rate is {admission_rate:.0%}."
+        if admission_rate is not None
+        else None
+    )
+
+    # Extreme selectivity dominates a simple GPA comparison. Strong academics
+    # may improve fit, but they do not turn a <=20% admit-rate school into a
+    # deterministic target or likely classification.
+    if admission_rate is not None and admission_rate <= HIGHLY_SELECTIVE_RATE:
         return {
             "label": "reach",
-            "reason": "The institution admits 20% or fewer applicants, so it is a reach for most students.",
-            "basis": "admission_rate_only",
+            "reason": " ".join(part for part in (academic_evidence, rate_evidence) if part),
+            "basis": (
+                "student_academic_profile"
+                if academic_evidence
+                else "admission_rate_only"
+            ),
         }
 
-    if student_gpa is not None and typical_gpa is not None:
-        difference = float(student_gpa) - float(typical_gpa)
-        if difference < -0.15:
+    if academic_signal is not None:
+        if academic_signal == "below":
             label = "reach"
-        elif difference >= 0.15 and (admission_rate is None or admission_rate >= 0.40):
+        elif academic_signal == "above" and (
+            admission_rate is None or admission_rate >= 0.50
+        ):
             label = "likely"
         else:
             label = "target"
         return {
             "label": label,
-            "reason": (
-                f"Your {student_gpa:g} GPA is being compared with the institution's "
-                f"reported {typical_gpa:g} typical GPA."
-            ),
+            "reason": " ".join(part for part in (academic_evidence, rate_evidence) if part),
             "basis": "student_academic_profile",
         }
 
     if admission_rate is not None:
-        if admission_rate <= 0.35:
+        if admission_rate <= REACH_RATE:
             label = "reach"
-        elif admission_rate <= 0.70:
+        elif admission_rate <= LIKELY_RATE:
             label = "target"
         else:
             label = "likely"
         return {
             "label": label,
             "reason": (
-                "This estimate uses the institution's overall admission rate because "
-                "student-specific academic comparison data is unavailable."
+                f"{rate_evidence} This estimate uses admission rate only because "
+                "comparable student GPA data is unavailable."
             ),
             "basis": "admission_rate_only",
         }
@@ -200,7 +243,11 @@ def _source(row: dict, college_id: str, fields: list[str], retrieved_at: str) ->
     name = _first(row, "source_name", "data_source") or DEFAULT_SOURCE_NAME
     url = _first(row, "source_url", "scorecard_url")
     if not url:
-        url = f"https://collegescorecard.ed.gov/school/?{college_id}"
+        url = (
+            f"https://collegescorecard.ed.gov/school/?{college_id}"
+            if college_id.isdigit()
+            else "https://collegescorecard.ed.gov/"
+        )
     source_time = _first(row, "source_retrieved_at", "retrieved_at", "updated_at") or retrieved_at
     return {
         "name": str(name),
@@ -216,12 +263,25 @@ def _match_reasons(
     budget: float | int | None,
     requested_program: str | None,
     program_status: str,
+    classification: dict,
     graduation_rate: float | None,
+    median_earnings: float | int | None,
+    match_score: float | None,
     state: str | None,
     filters: dict,
     query: str,
 ) -> list[dict]:
     reasons = []
+    if requested_program and program_status != "unknown":
+        reasons.append({
+            "category": "program",
+            "text": (
+                f"The institution reports offering {requested_program}."
+                if program_status == "available"
+                else f"The available source does not list {requested_program}."
+            ),
+            "evidence": f"Program status: {program_status}",
+        })
     if net_price is not None and budget is not None:
         difference = budget - net_price
         reasons.append({
@@ -235,21 +295,14 @@ def _match_reasons(
                 f"${net_price:,.0f} net price versus a ${budget:,.0f} budget"
             ),
         })
-    if requested_program and program_status != "unknown":
+    if classification.get("label") != "unknown":
         reasons.append({
-            "category": "program",
+            "category": "academic",
             "text": (
-                f"The institution reports offering {requested_program}."
-                if program_status == "available"
-                else f"The available source does not list {requested_program}."
+                f"This school is classified as {classification['label']} based on "
+                "the available admissions evidence."
             ),
-            "evidence": f"Program status: {program_status}",
-        })
-    if graduation_rate is not None:
-        reasons.append({
-            "category": "outcomes",
-            "text": "The graduation outcome is included so you can compare completion across matches.",
-            "evidence": f"{graduation_rate:.0%} graduation rate",
+            "evidence": classification["reason"],
         })
     requested_states = filters.get("location_state") or []
     if state and state in requested_states:
@@ -258,11 +311,26 @@ def _match_reasons(
             "text": "The institution is in one of your requested states.",
             "evidence": state,
         })
+    if graduation_rate is not None or median_earnings is not None:
+        evidence = []
+        if graduation_rate is not None:
+            evidence.append(f"{graduation_rate:.0%} graduation rate")
+        if median_earnings is not None:
+            evidence.append(f"${median_earnings:,.0f} median earnings 10 years after entry")
+        reasons.append({
+            "category": "outcomes",
+            "text": "Reported completion and earnings outcomes help measure long-term value.",
+            "evidence": "; ".join(evidence),
+        })
     if not reasons:
         reasons.append({
             "category": "culture",
             "text": "The institution matched the interests expressed in your search.",
-            "evidence": query or None,
+            "evidence": (
+                f"Semantic match {match_score:.0f}/100 for: {query}"
+                if match_score is not None and query
+                else query or None
+            ),
         })
     return reasons[:5]
 
@@ -294,6 +362,8 @@ def normalize_college_row(
     ))
     program = _requested_program(filters, profile)
     program_status, cip_code = _program_status(row, program)
+    classification = _classification(row, profile, admission_rate)
+    match_score = _match_score(row)
 
     source_fields = []
     for value, field in (
@@ -306,6 +376,19 @@ def normalize_college_row(
             source_fields.append(field)
     if program_status != "unknown":
         source_fields.append("program")
+    if _first(
+        row,
+        "gpa_25th",
+        "gpa_25",
+        "admitted_gpa_25th",
+        "gpa_75th",
+        "gpa_75",
+        "admitted_gpa_75th",
+        "average_gpa",
+        "avg_gpa",
+        "admitted_gpa",
+    ) is not None:
+        source_fields.append("classification.gpa_comparison")
 
     difference = budget - net_price if budget is not None and net_price is not None else None
     return {
@@ -315,14 +398,17 @@ def normalize_college_row(
             "city": str(city) if city is not None else None,
             "state": str(state) if state is not None else None,
         },
-        "classification": _classification(row, profile, admission_rate),
-        "match_score": _match_score(row),
+        "classification": classification,
+        "match_score": match_score,
         "match_reasons": _match_reasons(
             net_price=net_price,
             budget=budget,
             requested_program=program,
             program_status=program_status,
+            classification=classification,
             graduation_rate=graduation_rate,
+            median_earnings=earnings,
+            match_score=match_score,
             state=str(state) if state is not None else None,
             filters=filters,
             query=query,

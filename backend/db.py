@@ -187,6 +187,34 @@ def _sync_save_messages(student_id: str, messages: list):
     _client().table("student_profiles").update({"session_history": messages}).eq("student_id", student_id).execute()
 
 
+def _sync_list_recommendation_sets(student_id: str, limit: int):
+    student_id = _normalize_student_id(student_id)
+    result = (
+        _client()
+        .table("college_recommendation_sets")
+        .select("id,schema_version,query,recommendations,created_at")
+        .eq("student_id", student_id)
+        .order("created_at", desc=True)
+        .limit(max(1, min(limit, 50)))
+        .execute()
+    )
+    return result.data or []
+
+
+def _sync_get_recommendation_set(student_id: str, recommendation_set_id: str):
+    student_id = _normalize_student_id(student_id)
+    result = (
+        _client()
+        .table("college_recommendation_sets")
+        .select("id,schema_version,query,recommendations,profile_snapshot,created_at")
+        .eq("student_id", student_id)
+        .eq("id", recommendation_set_id)
+        .limit(1)
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
 def _sync_get_or_create_profile(phone: str):
     phone = normalize_phone_e164(phone)
     existing = _sync_get_profile_by_phone(phone)
@@ -229,3 +257,15 @@ async def save_profile(profile: dict):
 
 async def save_messages(student_id: str, messages: list):
     await asyncio.to_thread(_sync_save_messages, student_id, messages)
+
+
+async def list_recommendation_sets(student_id: str, limit: int = 10):
+    return await asyncio.to_thread(_sync_list_recommendation_sets, student_id, limit)
+
+
+async def get_recommendation_set(student_id: str, recommendation_set_id: str):
+    return await asyncio.to_thread(
+        _sync_get_recommendation_set,
+        student_id,
+        recommendation_set_id,
+    )

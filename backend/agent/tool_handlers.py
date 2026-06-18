@@ -127,6 +127,25 @@ def _get_clients():
         openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
     return supabase_client, openai_client
 
+
+def _recommendation_record(payload: dict, profile: dict) -> dict:
+    """Build a persistence row without copying contact details or chat history."""
+    return {
+        "id": payload["recommendation_set_id"],
+        "student_id": profile["student_id"],
+        "schema_version": payload["schema_version"],
+        "query": payload["query"],
+        "recommendations": payload["colleges"],
+        "profile_snapshot": {
+            "academic": profile.get("academic", {}),
+            "stated": profile.get("stated", {}),
+            "hard_constraints": profile.get("hard_constraints", {}),
+            "confidence_scores": profile.get("confidence_scores", {}),
+            "stage": profile.get("stage"),
+        },
+        "created_at": payload["generated_at"],
+    }
+
 def _handle_search_colleges(tool_input: dict, profile: dict) -> tuple[str, dict]:
     query = tool_input.get("query", "")
     filters = tool_input.get("filters", {})
@@ -175,6 +194,13 @@ def _handle_search_colleges(tool_input: dict, profile: dict) -> tuple[str, dict]
         filters=filters,
         query=query,
     )
+    try:
+        db.table("college_recommendation_sets").insert(
+            _recommendation_record(normalized, profile)
+        ).execute()
+    except Exception as e:
+        # Search results remain useful if persistence is temporarily degraded.
+        log.error("Failed to persist recommendation set: %s", e)
     return json.dumps(normalized), profile
 
 

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import './App.css'
 import { normalizePhone } from './phone.js'
+import CollegeResults from './components/CollegeResults.jsx'
 
 const rawEnvUrl = import.meta.env.VITE_API_URL || ''
 const isEnvSms = rawEnvUrl && (rawEnvUrl.includes(':3001') || rawEnvUrl.includes('textbelt'))
@@ -10,7 +11,7 @@ const SMS_API_URL = import.meta.env.VITE_SMS_API_URL || (isEnvSms ? rawEnvUrl : 
 
 const GRADE_OPTIONS = ['9th', '10th', '11th', '12th']
 
-async function consumeConversationStream(res, { onTextDelta, onProfile }) {
+async function consumeConversationStream(res, { onTextDelta, onProfile, onCollegeResults }) {
   if (!res.ok) {
     const detail = await res.text()
     throw new Error(`Conversation stream failed: ${res.status} ${detail}`)
@@ -36,6 +37,8 @@ async function consumeConversationStream(res, { onTextDelta, onProfile }) {
     const data = JSON.parse(dataText)
     if (eventType === 'text_delta') {
       onTextDelta(data.text || '')
+    } else if (eventType === 'college_results') {
+      onCollegeResults?.(data)
     } else if (eventType === 'profile_update' || eventType === 'done') {
       onProfile(data.updated_profile)
     }
@@ -314,6 +317,18 @@ function ChatScreen({ sessionToken, initialProfile, onSignOut }) {
     setMessages([{ role: 'assistant', text: greeting }])
   }, [])
 
+  const attachCollegeResults = (collegeResults) => {
+    setMessages(prev => {
+      const updated = [...prev]
+      const lastIndex = updated.length - 1
+      const last = updated[lastIndex]
+      if (last?.role === 'assistant') {
+        updated[lastIndex] = { ...last, collegeResults }
+      }
+      return updated
+    })
+  }
+
   const advanceOnboarding = (stepCompleted, value) => {
     const newData = { ...onboardingData, [stepCompleted]: value }
     setOnboardingData(newData)
@@ -390,6 +405,7 @@ function ChatScreen({ sessionToken, initialProfile, onSignOut }) {
           })
         },
         onProfile: setProfile,
+        onCollegeResults: attachCollegeResults,
       })
     } catch (e) {
       console.error('Onboarding error:', e)
@@ -454,6 +470,7 @@ function ChatScreen({ sessionToken, initialProfile, onSignOut }) {
           })
         },
         onProfile: setProfile,
+        onCollegeResults: attachCollegeResults,
       })
     } catch (e) {
       console.error('Conversation stream error:', e)
@@ -487,12 +504,22 @@ function ChatScreen({ sessionToken, initialProfile, onSignOut }) {
         </div>
 
         <div className="chat-messages">
-          {messages.map((msg, i) => (
-            <div key={i} className={`chat-bubble ${msg.role}`}>
-              {msg.role === 'assistant' && <span className="bubble-label">Halda</span>}
-              <p>{msg.text}{msg.role === 'assistant' && streaming && i === messages.length - 1 ? '▌' : ''}</p>
-            </div>
-          ))}
+          {messages.map((msg, i) => {
+            const hasCollegeResults = msg.collegeResults?.colleges?.length > 0
+            const isActiveAssistant = msg.role === 'assistant' && streaming && i === messages.length - 1
+
+            return (
+              <div key={i} className={`chat-message-group ${msg.role}`}>
+                {(msg.text || isActiveAssistant) && (
+                  <div className={`chat-bubble ${msg.role}`}>
+                    {msg.role === 'assistant' && <span className="bubble-label">Halda</span>}
+                    <p>{msg.text}{isActiveAssistant ? '▌' : ''}</p>
+                  </div>
+                )}
+                {hasCollegeResults && <CollegeResults resultSet={msg.collegeResults} />}
+              </div>
+            )
+          })}
 
           {onboardingStep === 'name' && (
             <OnboardingNameInput onSubmit={(v) => advanceOnboarding('name', v)} />

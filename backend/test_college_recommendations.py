@@ -80,6 +80,129 @@ class CollegeRecommendationNormalizationTests(unittest.TestCase):
         classification = payload["colleges"][0]["classification"]
         self.assertEqual(classification["label"], "likely")
         self.assertEqual(classification["basis"], "student_academic_profile")
+        self.assertIn("3.8 GPA is above", classification["reason"])
+
+    def test_gpa_range_and_selectivity_produce_deterministic_classifications(self):
+        rows = [
+            {
+                "id": "range-school",
+                "name": "Range College",
+                "admission_rate": 0.60,
+                "gpa_25th": 3.2,
+                "gpa_75th": 3.7,
+            },
+            {
+                "id": "selective-school",
+                "name": "Selective College",
+                "admission_rate": 0.12,
+                "average_gpa": 3.7,
+            },
+        ]
+        payload = normalize_college_results(
+            rows,
+            profile=profile(gpa=3.9),
+            filters={},
+            query="Strong academics",
+            now=NOW,
+        )
+
+        range_fit, selective_fit = [
+            college["classification"] for college in payload["colleges"]
+        ]
+        self.assertEqual(range_fit["label"], "likely")
+        self.assertIn("3.2-3.7 GPA range", range_fit["reason"])
+        self.assertEqual(selective_fit["label"], "reach")
+        self.assertIn("12%", selective_fit["reason"])
+        self.assertEqual(selective_fit["basis"], "student_academic_profile")
+
+    def test_admission_rate_only_rule_explains_its_limitation(self):
+        payload = normalize_college_results(
+            [{"id": "open-school", "name": "Open College", "admission_rate": 0.82}],
+            profile=profile(),
+            filters={},
+            query="Accessible colleges",
+            now=NOW,
+        )
+        classification = payload["colleges"][0]["classification"]
+        self.assertEqual(classification["label"], "likely")
+        self.assertEqual(classification["basis"], "admission_rate_only")
+        self.assertIn("GPA data is unavailable", classification["reason"])
+
+    def test_match_reasons_are_ordered_and_evidence_based(self):
+        payload = normalize_college_results(
+            [{
+                "id": "reason-school",
+                "name": "Reason College",
+                "state": "UT",
+                "net_price": 14000,
+                "admission_rate": 0.60,
+                "graduation_rate": 0.74,
+                "median_earnings_10yr": 61000,
+                "programs": ["Nursing"],
+            }],
+            profile=profile(budget=15000, gpa=3.5),
+            filters={"programs": ["Nursing"], "location_state": ["UT"]},
+            query="Affordable nursing in Utah",
+            now=NOW,
+        )
+        reasons = payload["colleges"][0]["match_reasons"]
+        self.assertEqual(
+            [reason["category"] for reason in reasons],
+            ["program", "financial", "academic", "location", "outcomes"],
+        )
+        self.assertTrue(all(reason["evidence"] for reason in reasons))
+        self.assertIn("$14,000 net price", reasons[1]["evidence"])
+
+    def test_card_classification_and_reasons_are_repeatable(self):
+        row = {
+            "id": "repeatable-school",
+            "name": "Repeatable College",
+            "net_price": 11000,
+            "admission_rate": 0.48,
+            "average_gpa": 3.5,
+            "graduation_rate": 0.68,
+        }
+        arguments = {
+            "profile": profile(budget=13000, gpa=3.6),
+            "filters": {},
+            "query": "Affordable target schools",
+            "now": NOW,
+        }
+        first = normalize_college_results([row], **arguments)["colleges"][0]
+        second = normalize_college_results([row], **arguments)["colleges"][0]
+        self.assertEqual(first["classification"], second["classification"])
+        self.assertEqual(first["match_reasons"], second["match_reasons"])
+
+    def test_source_links_preserve_provenance_and_avoid_fake_record_ids(self):
+        payload = normalize_college_results(
+            [{
+                "name": "Source College",
+                "source_name": "IPEDS",
+                "source_url": "https://nces.ed.gov/ipeds/datacenter/",
+                "source_retrieved_at": "2026-06-17T12:00:00Z",
+                "net_price": 9000,
+            }],
+            profile=profile(),
+            filters={},
+            query="Source-backed schools",
+            now=NOW,
+        )
+        source = payload["colleges"][0]["sources"][0]
+        self.assertEqual(source["name"], "IPEDS")
+        self.assertEqual(source["url"], "https://nces.ed.gov/ipeds/datacenter/")
+        self.assertEqual(source["retrieved_at"], "2026-06-17T12:00:00Z")
+
+        synthetic = normalize_college_results(
+            [{"name": "No Identifier College"}],
+            profile=profile(),
+            filters={},
+            query="Unknown ID",
+            now=NOW,
+        )["colleges"][0]
+        self.assertEqual(
+            synthetic["sources"][0]["url"],
+            "https://collegescorecard.ed.gov/",
+        )
 
     def test_filter_budget_is_used_when_profile_budget_is_missing(self):
         payload = normalize_college_results(

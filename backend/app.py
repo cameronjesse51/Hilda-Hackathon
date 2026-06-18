@@ -454,3 +454,26 @@ async def get_profile(student_id: str = Depends(get_current_student)):
     if not profile:
         raise HTTPException(status_code=404, detail="Student not found")
     return profile
+
+
+@app.get("/api/recommendations")
+async def list_recommendations(
+    limit: int = Query(10, ge=1, le=50),
+    student_id: str = Depends(get_current_student),
+):
+    recommendation_sets = await db.list_recommendation_sets(student_id, limit)
+    return {"recommendation_sets": recommendation_sets}
+
+
+@app.get("/api/recommendations/{recommendation_set_id}")
+async def get_recommendation(
+    recommendation_set_id: str,
+    student_id: str = Depends(get_current_student),
+):
+    recommendation_set = await db.get_recommendation_set(
+        student_id,
+        recommendation_set_id,
+    )
+    if not recommendation_set:
+        raise HTTPException(status_code=404, detail="Recommendation set not found")
+    return recommendation_set
