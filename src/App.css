@@ -377,6 +377,11 @@ button:disabled {
   gap: 16px;
 }
 
+.chat-messages.locked,
+.essay-chat-messages.locked {
+  overflow-y: hidden;
+}
+
 .chat-empty {
   text-align: center;
   color: #888;

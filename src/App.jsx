@@ -605,7 +605,7 @@ function EssayEditor({ essay, onUpdate, onDelete, onBack, onBackToChat, sessionT
         </div>
         <div className="essay-chat-pane">
           <div className="essay-chat-header">AI Essay Coach</div>
-          <div className="essay-chat-messages">
+          <div className={`essay-chat-messages${chatStreaming ? ' locked' : ''}`}>
             {chatMessages.map((msg, i) => (
               <div key={i} className={`essay-chat-bubble ${msg.role}`}>
                 {msg.text || (chatStreaming && i === chatMessages.length - 1 ? '...' : '')}
@@ -957,7 +957,7 @@ function ChatScreen({ sessionToken, initialProfile, onSignOut, onGoToEssays }) {
           <button className="sign-out-btn" onClick={onSignOut}>Sign out</button>
         </div>
 
-        <div className="chat-messages">
+        <div className={`chat-messages${streaming ? ' locked' : ''}`}>
           {messages.map((msg, i) => {
             const hasCollegeResults = msg.collegeResults?.colleges?.length > 0
             const hasScholarshipResults = msg.scholarshipResults?.scholarships?.length > 0
