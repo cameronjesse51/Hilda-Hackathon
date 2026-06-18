@@ -55,6 +55,12 @@ def _fuzzy_match_cip_desc(descriptions: list[str], query: str, threshold: float 
 def resolve_cip_codes(db, program_text: str) -> list[str]:
     """Look up CIP codes for a program name using the study_areas_by_code catalog.
 
+    study_areas_by_code schema:
+        cipcode     bigint  NOT NULL
+        cipdesc     text
+        uuid        uuid    NOT NULL
+        exists_in_institution  boolean
+
     First tries an exact substring match (ILIKE) against the catalog.  If that
     returns nothing — because the AI phrased the program differently from the
     canonical CIP label — falls back to fuzzy character-sequence matching against
@@ -74,36 +80,37 @@ def resolve_cip_codes(db, program_text: str) -> list[str]:
         # 1. Fast path: substring match against the catalog
         catalog_rows = (
             db.table("study_areas_by_code")
-            .select("cipdesc")
+            .select("cipcode")
             .ilike("cipdesc", f"%{program_text}%")
+            .eq("exists_in_institution", True)
             .execute()
             .data or []
         )
-        matched_descriptions = [r["cipdesc"] for r in catalog_rows if r.get("cipdesc")]
 
-        # 2. Fuzzy fallback: load full catalog and find the closest description
-        if not matched_descriptions:
+        # 2. Fuzzy fallback: load full catalog and find the closest description,
+        #    then re-query by exact description to get its cipcode
+        if not catalog_rows:
             all_descs = _load_all_cip_descs(db)
             best = _fuzzy_match_cip_desc(all_descs, program_text)
             if best:
                 log.info("CIP fuzzy match: %r → %r", program_text, best)
-                matched_descriptions = [best]
+                catalog_rows = (
+                    db.table("study_areas_by_code")
+                    .select("cipcode")
+                    .eq("cipdesc", best)
+                    .eq("exists_in_institution", True)
+                    .execute()
+                    .data or []
+                )
 
-        if not matched_descriptions:
+        if not catalog_rows:
             _cip_cache[cache_key] = []
             return []
 
-        specialty_rows = (
-            db.table("institution_specialties")
-            .select('"CIPCODE"')
-            .in_('"CIPDESC"', matched_descriptions)
-            .execute()
-            .data or []
-        )
         codes = sorted({
-            str(row["CIPCODE"])
-            for row in specialty_rows
-            if row.get("CIPCODE") is not None
+            str(row["cipcode"])
+            for row in catalog_rows
+            if row.get("cipcode") is not None
         })
         _cip_cache[cache_key] = codes
         return codes
