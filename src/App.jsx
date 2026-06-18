@@ -1358,9 +1358,10 @@ export default function App() {
           'X-Demo-Phone': personaPhone,
         },
       })
-      const data = await response.json()
+      let data
+      try { data = await response.json() } catch { data = {} }
       if (!response.ok || !data.token) {
-        setError(data.detail || 'Demo sign in failed')
+        setError(data.detail || `Error ${response.status} — please try again`)
         return
       }
       const profileResponse = await fetch(`${API_URL}/profile/me`, {
@@ -1368,8 +1369,8 @@ export default function App() {
       })
       const profile = profileResponse.ok ? await profileResponse.json() : null
       startChat(data.student_id, data.token, profile?.contact?.first_name ? profile : null)
-    } catch {
-      setError('Network error. Please try again.')
+    } catch (err) {
+      setError(`Network error: ${err.message || 'Please try again.'}`)
     } finally {
       setLoading(false)
     }
