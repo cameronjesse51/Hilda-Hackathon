@@ -140,6 +140,49 @@ app.get('/api/profile/:phone', async (req, res) => {
   }
 })
 
+// Search schools
+app.get('/api/schools/search', async (req, res) => {
+  try {
+    const q = req.query.q || ''
+    const zip = req.query.zip || ''
+
+    if (q.length < 2) {
+      if (zip) {
+        const response = await fetch(
+          `${process.env.SUPABASE_URL}/rest/v1/high_schools?zip=eq.${zip}&limit=5`,
+          {
+            headers: {
+              apikey: process.env.SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${process.env.SUPABASE_ANON_KEY}`,
+            }
+          }
+        )
+        const data = await response.json()
+        return res.json({ schools: data || [] })
+      }
+      return res.json({ schools: [] })
+    }
+
+    const response = await fetch(
+      `${process.env.SUPABASE_URL}/rest/v1/rpc/search_high_schools`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: process.env.SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${process.env.SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({ query: q, zip_code: zip })
+      }
+    )
+    const data = await response.json()
+    return res.json({ schools: data || [] })
+  } catch (error) {
+    console.error('School search error:', error)
+    res.status(500).json({ error: 'Failed to search schools' })
+  }
+})
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' })
