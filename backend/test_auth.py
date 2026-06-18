@@ -4,7 +4,7 @@ import unittest
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 
-from backend.auth import create_session_token, get_current_student
+from backend.auth import create_session_token, get_current_student, validate_dev_auth_key
 
 
 class SessionTokenTests(unittest.TestCase):
@@ -26,6 +26,40 @@ class SessionTokenTests(unittest.TestCase):
         )
         with self.assertRaises(HTTPException) as raised:
             get_current_student(credentials)
+        self.assertEqual(raised.exception.status_code, 401)
+
+
+class DeveloperAuthTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("ENABLE_DEV_AUTH", None)
+        os.environ.pop("DEV_AUTH_KEY", None)
+        os.environ.pop("DEV_AUTH_PHONE", None)
+
+    def tearDown(self):
+        os.environ.pop("ENABLE_DEV_AUTH", None)
+        os.environ.pop("DEV_AUTH_KEY", None)
+        os.environ.pop("DEV_AUTH_PHONE", None)
+
+    def test_bypass_is_hidden_when_disabled(self):
+        with self.assertRaises(HTTPException) as raised:
+            validate_dev_auth_key("anything")
+        self.assertEqual(raised.exception.status_code, 404)
+
+    def test_valid_key_returns_dedicated_normalized_phone(self):
+        os.environ["ENABLE_DEV_AUTH"] = "true"
+        os.environ["DEV_AUTH_KEY"] = "developer-key-0123456789abcdef"
+        os.environ["DEV_AUTH_PHONE"] = "801-555-1234"
+        self.assertEqual(
+            validate_dev_auth_key("developer-key-0123456789abcdef"),
+            "+18015551234",
+        )
+
+    def test_invalid_key_is_rejected(self):
+        os.environ["ENABLE_DEV_AUTH"] = "true"
+        os.environ["DEV_AUTH_KEY"] = "developer-key-0123456789abcdef"
+        os.environ["DEV_AUTH_PHONE"] = "+18015551234"
+        with self.assertRaises(HTTPException) as raised:
+            validate_dev_auth_key("wrong")
         self.assertEqual(raised.exception.status_code, 401)
 
 

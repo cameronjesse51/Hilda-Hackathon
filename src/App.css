@@ -184,6 +184,22 @@ button:disabled {
   text-decoration: underline;
 }
 
+.developer-login-link {
+  width: auto;
+  min-height: auto;
+  margin: 14px auto 0;
+  padding: 7px 10px;
+  background: transparent;
+  color: #667085;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.developer-login-link:hover:not(:disabled) {
+  background: #eef2f6;
+  color: #344054;
+}
+
 .success-state {
   text-align: center;
 }

@@ -8,6 +8,7 @@ const isEnvSms = rawEnvUrl && (rawEnvUrl.includes(':3001') || rawEnvUrl.includes
 
 const API_URL = isEnvSms ? 'http://localhost:8000' : (rawEnvUrl || 'http://localhost:8000')
 const SMS_API_URL = import.meta.env.VITE_SMS_API_URL || (isEnvSms ? rawEnvUrl : 'http://localhost:3001')
+const DEV_AUTH_ENABLED = import.meta.env.VITE_ENABLE_DEV_AUTH === 'true'
 
 const GRADE_OPTIONS = ['9th', '10th', '11th', '12th']
 
@@ -644,7 +645,7 @@ function ChatScreen({ sessionToken, initialProfile, onSignOut }) {
   )
 }
 
-function PhoneInput({ phone, setPhone, onSubmit, loading, error }) {
+function PhoneInput({ phone, setPhone, onSubmit, onDeveloperSignIn, loading, error }) {
   return (
     <div className="form-container">
       <h1>Welcome to Halda</h1>
@@ -668,6 +669,40 @@ function PhoneInput({ phone, setPhone, onSubmit, loading, error }) {
           {loading ? <span className="spinner"></span> : 'Continue'}
         </button>
       </form>
+      {onDeveloperSignIn && (
+        <button type="button" className="developer-login-link" onClick={onDeveloperSignIn}>
+          Developer sign in
+        </button>
+      )}
+    </div>
+  )
+}
+
+function DeveloperLogin({ accessKey, setAccessKey, onSubmit, onCancel, loading, error }) {
+  return (
+    <div className="form-container">
+      <h1>Developer sign in</h1>
+      <p className="subtitle">Use the private development access key. No SMS will be sent.</p>
+      <form onSubmit={onSubmit}>
+        <div className="form-group">
+          <label htmlFor="developer-key">Access key</label>
+          <input
+            type="password"
+            id="developer-key"
+            value={accessKey}
+            onChange={(e) => setAccessKey(e.target.value)}
+            autoComplete="off"
+            required
+          />
+          {error && <div className="error-message show">{error}</div>}
+        </div>
+        <button type="submit" disabled={loading || !accessKey}>
+          {loading ? <span className="spinner"></span> : 'Sign in without SMS'}
+        </button>
+      </form>
+      <button type="button" className="developer-login-link" onClick={onCancel} disabled={loading}>
+        Back to phone sign in
+      </button>
     </div>
   )
 }
@@ -736,6 +771,7 @@ export default function App() {
   const [studentId, setStudentId] = useState('')
   const [sessionToken, setSessionToken] = useState('')
   const [existingProfile, setExistingProfile] = useState(null)
+  const [developerKey, setDeveloperKey] = useState('')
 
   useEffect(() => {
     const savedToken = localStorage.getItem('halda_session')
@@ -781,6 +817,34 @@ export default function App() {
     setExistingProfile(null)
     setStudentId('')
     setStep('phone')
+  }
+
+  const handleDeveloperSignIn = async (e) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      const response = await fetch(`${API_URL}/auth/dev-session`, {
+        method: 'POST',
+        headers: { 'X-Dev-Auth-Key': developerKey },
+      })
+      const data = await response.json()
+      if (!response.ok || !data.token) {
+        setError(data.detail || 'Developer sign in failed')
+        return
+      }
+
+      const profileResponse = await fetch(`${API_URL}/profile/me`, {
+        headers: { Authorization: `Bearer ${data.token}` },
+      })
+      const profile = profileResponse.ok ? await profileResponse.json() : null
+      setDeveloperKey('')
+      startChat(data.student_id, data.token, profile?.contact?.first_name ? profile : null)
+    } catch {
+      setError('Network error. Please try again.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const validatePhone = (phoneStr) => {
@@ -899,6 +963,25 @@ export default function App() {
             phone={phone}
             setPhone={setPhone}
             onSubmit={handlePhoneSubmit}
+            loading={loading}
+            error={error}
+            onDeveloperSignIn={DEV_AUTH_ENABLED ? () => {
+              setError('')
+              setStep('developer')
+            } : null}
+          />
+        )}
+
+        {step === 'developer' && (
+          <DeveloperLogin
+            accessKey={developerKey}
+            setAccessKey={setDeveloperKey}
+            onSubmit={handleDeveloperSignIn}
+            onCancel={() => {
+              setError('')
+              setDeveloperKey('')
+              setStep('phone')
+            }}
             loading={loading}
             error={error}
           />

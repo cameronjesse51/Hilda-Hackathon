@@ -18,6 +18,7 @@ except ModuleNotFoundError:
 
 bearer = HTTPBearer(auto_error=False)
 SESSION_TTL_SECONDS = 60 * 60 * 24 * 7
+MIN_DEV_AUTH_KEY_LENGTH = 24
 
 
 def _decode_segment(segment: str) -> dict:
@@ -55,6 +56,25 @@ def create_session_token(student_id: str, phone: str) -> tuple[str, int]:
         hmac.new(_session_secret().encode(), unsigned_token.encode(), hashlib.sha256).digest()
     ).rstrip(b"=").decode()
     return f"{unsigned_token}.{signature}", expires_at
+
+
+def validate_dev_auth_key(provided_key: str) -> str:
+    """Validate the opt-in developer bypass and return its dedicated phone."""
+    enabled = os.environ.get("ENABLE_DEV_AUTH", "").strip().lower() == "true"
+    if not enabled:
+        # Hide the bypass endpoint when it is not explicitly enabled.
+        raise HTTPException(status_code=404, detail="Not found")
+
+    expected_key = os.environ.get("DEV_AUTH_KEY", "")
+    if len(expected_key) < MIN_DEV_AUTH_KEY_LENGTH:
+        raise HTTPException(status_code=503, detail="Developer auth is not configured")
+    if not provided_key or not hmac.compare_digest(provided_key, expected_key):
+        raise HTTPException(status_code=401, detail="Invalid developer credentials")
+
+    try:
+        return normalize_phone_e164(os.environ.get("DEV_AUTH_PHONE", ""))
+    except ValueError:
+        raise HTTPException(status_code=503, detail="Developer auth phone is not configured")
 
 
 def get_current_student(

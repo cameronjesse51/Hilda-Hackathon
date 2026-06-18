@@ -12,12 +12,12 @@ load_dotenv()
 
 try:
     from backend.agent.conversation import run_conversation, stream_conversation
-    from backend.auth import create_session_token, get_current_student
+    from backend.auth import create_session_token, get_current_student, validate_dev_auth_key
     from backend.phone import normalize_phone_e164
     from backend import db
 except ModuleNotFoundError:
     from agent.conversation import run_conversation, stream_conversation
-    from auth import create_session_token, get_current_student
+    from auth import create_session_token, get_current_student, validate_dev_auth_key
     from phone import normalize_phone_e164
     import db
 
@@ -181,6 +181,18 @@ async def issue_session(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    profile = await db.get_or_create_profile(phone)
+    token, expires_at = create_session_token(profile["student_id"], phone)
+    return {
+        "token": token,
+        "expires_at": expires_at,
+        "student_id": profile["student_id"],
+    }
+
+
+@app.post("/auth/dev-session")
+async def issue_dev_session(x_dev_auth_key: str = Header(default="")):
+    phone = validate_dev_auth_key(x_dev_auth_key)
     profile = await db.get_or_create_profile(phone)
     token, expires_at = create_session_token(profile["student_id"], phone)
     return {

@@ -13,6 +13,21 @@ UUID profile and request the signed session.
 The API service also requires `SUPABASE_SERVICE_ROLE_KEY`; profile identity
 resolution runs server-side and must not use the browser-facing anon key.
 
+## Optional developer login
+
+To test without sending an OTP, set these variables on the API service:
+
+```text
+ENABLE_DEV_AUTH=true
+DEV_AUTH_KEY=<at least 24 random characters>
+DEV_AUTH_PHONE=<dedicated test phone in E.164 format>
+```
+
+Set `VITE_ENABLE_DEV_AUTH=true` on the web service and redeploy it. The developer
+enters `DEV_AUTH_KEY` in the login UI; the key must never be placed in a `VITE_*`
+variable because Vite values are public. Keep `ENABLE_DEV_AUTH=false` in public
+production when the bypass is not actively needed.
+
 ## Web service
 
 - Root Directory: `/`
