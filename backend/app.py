@@ -1,5 +1,6 @@
 import os
 import hmac
+import json
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
@@ -148,6 +149,13 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     updated_profile: dict
+
+
+class EssayChatRequest(BaseModel):
+    message: str
+    essay_title: str = ""
+    essay_content: str = ""
+    history: list = []
 
 
 class OnboardRequest(BaseModel):
@@ -303,6 +311,63 @@ async def chat_stream(req: ChatRequest, student_id: str = Depends(get_current_st
         conversations[student_id] = history
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.post("/essay/chat/stream")
+async def essay_chat_stream(req: EssayChatRequest, student_id: str = Depends(get_current_student)):
+    import anthropic
+
+    essay_context = ""
+    if req.essay_title or req.essay_content:
+        essay_context = (
+            f'\n\nThe student\'s current essay (titled "{req.essay_title or "Untitled"}"):\n'
+            f'"""\n{req.essay_content}\n"""'
+        )
+
+    system_prompt = (
+        "You are Halda, an AI college counselor and essay writing coach. "
+        "You help students craft compelling college application essays. "
+        "Be specific, encouraging, and give actionable feedback. "
+        "When the student's essay is provided, reference their actual text when giving feedback. "
+        "Keep responses focused and conversational — this is a real-time chat."
+        + essay_context
+    )
+
+    messages = []
+    for item in req.history:
+        role = item.get("role", "user") if isinstance(item, dict) else "user"
+        content = item.get("content", "") if isinstance(item, dict) else ""
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
+
+    # Claude requires conversations to start with a user turn
+    while messages and messages[0]["role"] == "assistant":
+        messages.pop(0)
+
+    messages.append({"role": "user", "content": req.message})
+
+    client = anthropic.AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+
+    async def generate():
+        async with client.messages.stream(
+            model="claude-opus-4-8",
+            max_tokens=4096,
+            thinking={"type": "adaptive"},
+            system=system_prompt,
+            messages=messages,
+        ) as stream:
+            async for text in stream.text_stream:
+                yield f"event: text_delta\ndata: {json.dumps({'text': text})}\n\n"
+        yield f"event: done\ndata: {{}}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 def _prepare_onboarding(req: OnboardRequest, profile: dict) -> tuple[dict, str]:

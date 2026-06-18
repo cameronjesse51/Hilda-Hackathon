@@ -298,7 +298,256 @@ function OnboardingSchoolSearch({ zip, onSelect }) {
   )
 }
 
-function ChatScreen({ sessionToken, initialProfile, onSignOut }) {
+function EssayEditor({ essay, onUpdate, onDelete, onBack, onBackToChat, sessionToken }) {
+  const [title, setTitle] = useState(essay.title)
+  const [content, setContent] = useState(essay.content)
+  const [saveStatus, setSaveStatus] = useState('Saved')
+  const debounceRef = useRef(null)
+  const wordCount = content.trim() ? content.trim().split(/\s+/).filter(Boolean).length : 0
+
+  const [chatMessages, setChatMessages] = useState([{
+    role: 'assistant',
+    text: "Hi! I'm your AI essay coach. I can see your essay as you write. Ask me for feedback, brainstorming help, or anything else!",
+  }])
+  const [chatInput, setChatInput] = useState('')
+  const [chatStreaming, setChatStreaming] = useState(false)
+  const chatEndRef = useRef(null)
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [chatMessages])
+
+  const handleChange = (field, value) => {
+    const newTitle = field === 'title' ? value : title
+    const newContent = field === 'content' ? value : content
+    if (field === 'title') setTitle(value)
+    if (field === 'content') setContent(value)
+    setSaveStatus('Saving...')
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      onUpdate(essay.id, { title: newTitle, content: newContent })
+      setSaveStatus('Saved')
+    }, 500)
+  }
+
+  const sendChatMessage = async (e) => {
+    e?.preventDefault()
+    const userMsg = chatInput.trim()
+    if (!userMsg || chatStreaming) return
+
+    const history = chatMessages.map(m => ({ role: m.role, content: m.text }))
+    setChatMessages(prev => [...prev, { role: 'user', text: userMsg }])
+    setChatInput('')
+    setChatStreaming(true)
+    setChatMessages(prev => [...prev, { role: 'assistant', text: '' }])
+
+    try {
+      const res = await fetch(`${API_URL}/essay/chat/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify({
+          message: userMsg,
+          essay_title: title,
+          essay_content: content,
+          history,
+        }),
+      })
+
+      await consumeConversationStream(res, {
+        onTextDelta: (text) => {
+          setChatMessages(prev => {
+            const updated = [...prev]
+            const last = updated[updated.length - 1]
+            if (last?.role === 'assistant') {
+              updated[updated.length - 1] = { ...last, text: last.text + text }
+            }
+            return updated
+          })
+        },
+        onProfile: () => {},
+        onCollegeResults: () => {},
+      })
+    } catch {
+      setChatMessages(prev => {
+        const updated = [...prev]
+        const last = updated[updated.length - 1]
+        if (last?.role === 'assistant' && !last.text) {
+          updated[updated.length - 1] = { ...last, text: 'Something went wrong. Please try again.' }
+        }
+        return updated
+      })
+    } finally {
+      setChatStreaming(false)
+    }
+  }
+
+  return (
+    <div className="essays-layout">
+      <div className="essays-header">
+        <img src="/halda_logo_white.svg" alt="Halda" className="chat-header-logo" />
+        <span className="chat-header-subtitle" style={{ flex: 1 }}>Essay Editor</span>
+        <button className="sign-out-btn" onClick={onBack}>← All Essays</button>
+        <button className="sign-out-btn" onClick={onBackToChat}>Back to Chat</button>
+      </div>
+      <div className="essay-split">
+        <div className="essay-editor-pane">
+          <div className="essay-editor-content">
+            <div className="essay-editor-toolbar">
+              <span className="essay-save-status">{saveStatus}</span>
+              <span className="essay-word-count">{wordCount} words</span>
+              <button className="essay-delete-btn" onClick={() => {
+                if (window.confirm('Delete this essay?')) onDelete(essay.id)
+              }}>Delete</button>
+            </div>
+            <input
+              className="essay-title-input"
+              type="text"
+              value={title}
+              onChange={e => handleChange('title', e.target.value)}
+              placeholder="Essay title..."
+            />
+            <textarea
+              className="essay-textarea"
+              value={content}
+              onChange={e => handleChange('content', e.target.value)}
+              placeholder="Start writing your essay here..."
+            />
+          </div>
+        </div>
+        <div className="essay-chat-pane">
+          <div className="essay-chat-header">AI Essay Coach</div>
+          <div className="essay-chat-messages">
+            {chatMessages.map((msg, i) => (
+              <div key={i} className={`essay-chat-bubble ${msg.role}`}>
+                {msg.text || (chatStreaming && i === chatMessages.length - 1 ? '...' : '')}
+              </div>
+            ))}
+            <div ref={chatEndRef} />
+          </div>
+          <form className="essay-chat-input-bar" onSubmit={sendChatMessage}>
+            <input
+              type="text"
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              placeholder="Ask about your essay..."
+              disabled={chatStreaming}
+            />
+            <button type="submit" disabled={!chatInput.trim() || chatStreaming}>Send</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EssayList({ essays, onSelect, onCreate, onBackToChat }) {
+  return (
+    <div className="essays-layout">
+      <div className="essays-header">
+        <img src="/halda_logo_white.svg" alt="Halda" className="chat-header-logo" />
+        <span className="chat-header-subtitle" style={{ flex: 1 }}>My Essays</span>
+        <button className="sign-out-btn" onClick={onBackToChat}>Back to Chat</button>
+      </div>
+      <div className="essays-content">
+        <div className="essays-toolbar">
+          <h2>College Essays</h2>
+          <button className="new-essay-btn" onClick={onCreate}>+ New Essay</button>
+        </div>
+        {essays.length === 0 ? (
+          <div className="essays-empty">
+            <p>No essays yet. Click below to get started.</p>
+            <button onClick={onCreate}>+ New Essay</button>
+          </div>
+        ) : (
+          <div className="essays-list">
+            {essays.map(essay => (
+              <div key={essay.id} className="essay-card" onClick={() => onSelect(essay)}>
+                <div className={`essay-card-title${!essay.title ? ' untitled' : ''}`}>
+                  {essay.title || 'Untitled Essay'}
+                </div>
+                <div className="essay-card-meta">
+                  <span>
+                    {essay.content.trim() ? essay.content.trim().split(/\s+/).filter(Boolean).length : 0} words
+                  </span>
+                  <span>{new Date(essay.updatedAt).toLocaleDateString()}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function EssayScreen({ studentId, onBackToChat, sessionToken }) {
+  const [essays, setEssays] = useState([])
+  const [selectedEssay, setSelectedEssay] = useState(null)
+
+  useEffect(() => {
+    const saved = localStorage.getItem(`halda_essays_${studentId}`)
+    if (saved) {
+      try { setEssays(JSON.parse(saved)) } catch {}
+    }
+  }, [studentId])
+
+  const saveEssays = (updated) => {
+    setEssays(updated)
+    localStorage.setItem(`halda_essays_${studentId}`, JSON.stringify(updated))
+  }
+
+  const createEssay = () => {
+    const essay = {
+      id: Date.now().toString(),
+      title: '',
+      content: '',
+      updatedAt: new Date().toISOString(),
+    }
+    const updated = [essay, ...essays]
+    saveEssays(updated)
+    setSelectedEssay(essay)
+  }
+
+  const updateEssay = (id, changes) => {
+    const updated = essays.map(e =>
+      e.id === id ? { ...e, ...changes, updatedAt: new Date().toISOString() } : e
+    )
+    saveEssays(updated)
+    setSelectedEssay(prev => (prev?.id === id ? { ...prev, ...changes } : prev))
+  }
+
+  const deleteEssay = (id) => {
+    saveEssays(essays.filter(e => e.id !== id))
+    setSelectedEssay(null)
+  }
+
+  if (selectedEssay) {
+    return (
+      <EssayEditor
+        essay={selectedEssay}
+        onUpdate={updateEssay}
+        onDelete={deleteEssay}
+        onBack={() => setSelectedEssay(null)}
+        onBackToChat={onBackToChat}
+        sessionToken={sessionToken}
+      />
+    )
+  }
+
+  return (
+    <EssayList
+      essays={essays}
+      onSelect={setSelectedEssay}
+      onCreate={createEssay}
+      onBackToChat={onBackToChat}
+    />
+  )
+}
+
+function ChatScreen({ sessionToken, initialProfile, onSignOut, onGoToEssays }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
@@ -501,6 +750,7 @@ function ChatScreen({ sessionToken, initialProfile, onSignOut }) {
         <div className="chat-header">
           <img src="/halda_logo_white.svg" alt="Halda" className="chat-header-logo" />
           <span className="chat-header-subtitle">AI College Counselor</span>
+          <button className="essays-btn" onClick={onGoToEssays}>Essays</button>
           <button className="sign-out-btn" onClick={onSignOut}>Sign out</button>
         </div>
 
@@ -939,8 +1189,12 @@ export default function App() {
 
   if (step === 'loading') return null
 
+  if (step === 'essays') {
+    return <EssayScreen studentId={studentId} onBackToChat={() => setStep('chat')} sessionToken={sessionToken} />
+  }
+
   if (step === 'chat') {
-    return <ChatScreen sessionToken={sessionToken} initialProfile={existingProfile} onSignOut={handleSignOut} />
+    return <ChatScreen sessionToken={sessionToken} initialProfile={existingProfile} onSignOut={handleSignOut} onGoToEssays={() => setStep('essays')} />
   }
 
   return (
