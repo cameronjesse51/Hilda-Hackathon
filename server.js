@@ -1,6 +1,5 @@
 import express from 'express'
 import cors from 'cors'
-import twilio from 'twilio'
 import dotenv from 'dotenv'
 
 dotenv.config()
@@ -9,10 +8,7 @@ const app = express()
 app.use(cors())
 app.use(express.json())
 
-const client = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-)
+const TEXTBELT_KEY = process.env.TEXTBELT_KEY || 'textbelt'
 
 // Store verification codes in memory (in production, use a database with TTL)
 const verificationCodes = new Map()
@@ -41,19 +37,29 @@ app.post('/api/send-verification', async (req, res) => {
       attempts: 0
     })
 
-    // Send SMS
-    const message = await client.messages.create({
-      from: process.env.TWILIO_PHONE_NUMBER,
-      to: phone,
-      body: `Your Halda verification code is: ${code}`
+    // Send SMS via TextBelt
+    const response = await fetch('https://textbelt.com/text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone,
+        message: `Your Hilda verification code is: ${code}`,
+        key: TEXTBELT_KEY
+      })
     })
 
-    console.log(`SMS sent to ${phone}: SID ${message.sid}`)
+    const result = await response.json()
+
+    if (!result.success) {
+      throw new Error(result.error || 'TextBelt failed to send SMS')
+    }
+
+    console.log(`SMS sent to ${phone}: TextBelt ID ${result.textId}`)
 
     res.json({
       success: true,
       message: 'Verification code sent',
-      sid: message.sid
+      textId: result.textId
     })
   } catch (error) {
     console.error('SMS send error:', error)
