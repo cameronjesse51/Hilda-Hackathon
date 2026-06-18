@@ -122,10 +122,10 @@ conversations: dict[str, list] = {}
 supabase = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_ANON_KEY"])
 
 GRADE_TO_STAGE = {
-    "9th": "sophomore",
+    "9th": "freshman",
     "10th": "sophomore",
     "11th": "junior",
-    "12th": "senior",
+    "12th": "senior"
 }
 
 
