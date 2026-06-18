@@ -331,7 +331,7 @@ function ChatScreen({ studentId, initialProfile }) {
     <div className="chat-layout">
       <div className="chat-main">
         <div className="chat-header">
-          <span className="chat-header-logo">HALDA</span>
+          <img src="/halda_logo_white.svg" alt="Halda" className="chat-header-logo" />
           <span className="chat-header-subtitle">AI College Counselor</span>
         </div>
 
