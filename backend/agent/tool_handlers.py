@@ -99,56 +99,97 @@ def _handle_score_probe_response(tool_input: dict, profile: dict) -> tuple[str, 
     ), profile
 
 
+supabase_client = None
+openai_client = None
+
+def _get_clients():
+    global supabase_client, openai_client
+    import os
+    if not supabase_client:
+        from supabase import create_client
+        supabase_client = create_client(os.environ.get("SUPABASE_URL", ""), os.environ.get("SUPABASE_ANON_KEY", ""))
+    if not openai_client:
+        from openai import OpenAI
+        openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+    return supabase_client, openai_client
+
 def _handle_search_colleges(tool_input: dict, profile: dict) -> tuple[str, dict]:
-    # Stub — replace with Simon's College Scorecard wrapper + Qdrant query
     query = tool_input.get("query", "")
     filters = tool_input.get("filters", {})
+    limit = tool_input.get("limit", 5)
     log.info("search_colleges called: query=%s filters=%s", query, json.dumps(filters))
 
+    db, oai = _get_clients()
+
+    try:
+        res = oai.embeddings.create(
+            input=query if query else "good college",
+            model="text-embedding-3-small",
+            dimensions=1024
+        )
+        query_embedding = res.data[0].embedding
+    except Exception as e:
+        log.error("Embedding failed: %s", e)
+        return json.dumps({"error": "Failed to generate semantic embedding"}), profile
+
+    programs = filters.get("programs", [])
+    programs_lower = [p.lower() for p in programs]
+
+    rpc_params = {
+        "query_embedding": query_embedding,
+        "max_net_price": filters.get("max_net_price"),
+        "filter_visa": filters.get("visa_friendly"),
+        "filter_state": filters.get("location_state"),
+        "min_admission_rate": filters.get("min_acceptance_rate"),
+        "max_admission_rate": filters.get("max_acceptance_rate"),
+        "requires_nursing": any("nursing" in p for p in programs_lower),
+        "requires_cs": any("computer science" in p or "cs" in p for p in programs_lower),
+        "requires_engineering": any("engineering" in p for p in programs_lower),
+        "match_count": limit
+    }
+
+    try:
+        response = db.rpc('search_colleges', rpc_params).execute()
+        results = response.data
+    except Exception as e:
+        log.error("Supabase RPC failed: %s", e)
+        return json.dumps({"error": "Database query failed"}), profile
+
     return json.dumps({
-        "results": [
-            {
-                "name": "Utah Valley University",
-                "location": "Orem, UT",
-                "avg_net_price": 12500,
-                "acceptance_rate": 0.99,
-                "graduation_rate": 0.38,
-                "programs": ["Computer Science", "Nursing", "Environmental Science"],
-                "match_reason": "Stub data — replace with real College Scorecard results",
-            },
-            {
-                "name": "University of Utah",
-                "location": "Salt Lake City, UT",
-                "avg_net_price": 18200,
-                "acceptance_rate": 0.85,
-                "graduation_rate": 0.69,
-                "programs": ["Computer Science", "Nursing", "Biology"],
-                "match_reason": "Stub data — replace with real College Scorecard results",
-            },
-            {
-                "name": "Brigham Young University",
-                "location": "Provo, UT",
-                "avg_net_price": 13400,
-                "acceptance_rate": 0.67,
-                "graduation_rate": 0.85,
-                "programs": ["Computer Science", "Environmental Science"],
-                "match_reason": "Stub data — replace with real College Scorecard results",
-            },
-        ],
-        "note": "These are stub results. Wire to College Scorecard API + Qdrant for real data.",
+        "results": results,
+        "note": "Real results from Supabase hybrid search."
     }), profile
 
 
 def _handle_schedule_checkin(tool_input: dict, profile: dict) -> tuple[str, dict]:
-    # Stub — replace with Supabase insert into scheduled_checkins table
     channel = tool_input.get("channel", "sms")
     send_at = tool_input.get("send_at", "")
     topic = tool_input.get("topic", "")
     message_body = tool_input.get("message_body", "")
+    student_id = profile.get("student_id")
+    
     log.info(
         "schedule_checkin: channel=%s send_at=%s topic=%s body=%s",
         channel, send_at, topic, message_body,
     )
+
+    db, _ = _get_clients()
+
+    if not student_id:
+        log.warning("schedule_checkin failed: no student_id in profile")
+        return "Failed to schedule check-in: No student_id found in profile.", profile
+
+    try:
+        db.table("scheduled_checkins").insert({
+            "student_id": student_id,
+            "send_at": send_at,
+            "channel": channel,
+            "topic": topic,
+            "message_body": message_body
+        }).execute()
+    except Exception as e:
+        log.error("Failed to insert scheduled check-in: %s", e)
+        return f"Database error scheduling check-in: {str(e)}", profile
 
     return (
         f"Check-in scheduled: {topic} via {channel} at {send_at}. "

@@ -1,7 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import './App.css'
 
-const API_URL = import.meta.env.VITE_API_URL || ''
+const rawEnvUrl = import.meta.env.VITE_API_URL || ''
+const isEnvSms = rawEnvUrl && (rawEnvUrl.includes(':3001') || rawEnvUrl.includes('textbelt'))
+
+const API_URL = isEnvSms ? 'http://localhost:8000' : (rawEnvUrl || 'http://localhost:8000')
+const SMS_API_URL = import.meta.env.VITE_SMS_API_URL || (isEnvSms ? rawEnvUrl : 'http://localhost:3001')
 
 const GRADE_OPTIONS = ['9th', '10th', '11th', '12th']
 
@@ -79,6 +83,9 @@ function OnboardingZipInput({ onSubmit }) {
 }
 
 function OnboardingSchoolSearch({ zip, onSelect }) {
+  const [suggestedSchools, setSuggestedSchools] = useState([])
+  const [showSearch, setShowSearch] = useState(false)
+  const [hasLoadedSuggestions, setHasLoadedSuggestions] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
@@ -86,8 +93,48 @@ function OnboardingSchoolSearch({ zip, onSelect }) {
   const inputRef = useRef(null)
   const debounceRef = useRef(null)
 
-  useEffect(() => { inputRef.current?.focus() }, [])
+  // Load initial suggestions by zip code
+  useEffect(() => {
+    if (!zip) {
+      setHasLoadedSuggestions(true)
+      setShowSearch(true)
+      return
+    }
 
+    // Reset visibility states when zip becomes available
+    setShowSearch(false)
+    setHasLoadedSuggestions(false)
+
+    const loadSuggestions = async () => {
+      try {
+        const res = await fetch(
+          `${API_URL}/api/schools/search?zip=${encodeURIComponent(zip)}`
+        )
+        const data = await res.json()
+        const schools = data.schools || []
+        setSuggestedSchools(schools)
+        if (schools.length === 0) {
+          setShowSearch(true)
+        }
+      } catch (err) {
+        console.error("Failed to load school suggestions:", err)
+        setShowSearch(true)
+      } finally {
+        setHasLoadedSuggestions(true)
+      }
+    }
+
+    loadSuggestions()
+  }, [zip])
+
+  // Focus input when manual search is shown
+  useEffect(() => {
+    if (showSearch) {
+      inputRef.current?.focus()
+    }
+  }, [showSearch])
+
+  // Custom search suggestions debounce
   useEffect(() => {
     if (query.length < 2) {
       setResults([])
@@ -122,6 +169,40 @@ function OnboardingSchoolSearch({ zip, onSelect }) {
   const handleCustomSubmit = (e) => {
     e.preventDefault()
     if (query.trim()) onSelect(query.trim())
+  }
+
+  if (!hasLoadedSuggestions) {
+    return (
+      <div className="onboarding-widget school-loading" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#667085', fontSize: '14px' }}>
+        <span className="spinner" style={{ borderTopColor: '#1e88e5', borderLeftColor: 'rgba(30,136,229,0.2)', borderRightColor: 'rgba(30,136,229,0.2)', borderBottomColor: 'rgba(30,136,229,0.2)' }} />
+        Finding schools in your area...
+      </div>
+    )
+  }
+
+  if (!showSearch && suggestedSchools.length > 0) {
+    return (
+      <div className="onboarding-widget school-chips">
+        {suggestedSchools.map((school, i) => (
+          <button
+            key={i}
+            type="button"
+            className="school-chip"
+            onClick={() => handleSelect(school)}
+          >
+            <span className="school-chip-name">{school.name}</span>
+            <span className="school-chip-location">{school.city}, {school.state}</span>
+          </button>
+        ))}
+        <button
+          type="button"
+          className="school-chip other-chip"
+          onClick={() => setShowSearch(true)}
+        >
+          🔍 Other / Search by name
+        </button>
+      </div>
+    )
   }
 
   return (
@@ -168,6 +249,7 @@ function ChatScreen({ studentId, initialProfile, onSignOut }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
+  const [onboardingLoading, setOnboardingLoading] = useState(false)
   const [profile, setProfile] = useState(initialProfile || null)
   const [onboardingStep, setOnboardingStep] = useState(initialProfile ? 'done' : 'name')
   const [onboardingData, setOnboardingData] = useState({})
@@ -183,6 +265,38 @@ function ChatScreen({ studentId, initialProfile, onSignOut }) {
       : "Hey! I'm Halda, your AI college counselor. Let's get to know each other — what's your name?"
     setMessages([{ role: 'assistant', text: greeting }])
   }, [])
+
+  const initializeProfile = async (allData) => {
+    setOnboardingLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/onboard`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          student_id: studentId,
+          name: allData.name,
+          grade: allData.grade,
+          zip: allData.zip,
+          high_school: allData.school,
+          goals: allData.goals || '',
+        })
+      })
+      const data = await res.json()
+      if (data.profile) setProfile(data.profile)
+      // Display Claude's stage-aware first message directly
+      if (data.first_message) {
+        setMessages(prev => [...prev, { role: 'assistant', text: data.first_message }])
+      }
+    } catch (err) {
+      console.error('Onboarding init error:', err)
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        text: "I'm ready to help you with your college journey. What's on your mind?"
+      }])
+    } finally {
+      setOnboardingLoading(false)
+    }
+  }
 
   const advanceOnboarding = (stepCompleted, value) => {
     const newData = { ...onboardingData, [stepCompleted]: value }
@@ -221,7 +335,7 @@ function ChatScreen({ studentId, initialProfile, onSignOut }) {
         setMessages(prev => [
           ...prev,
           { role: 'user', text: value },
-          { role: 'assistant', text: "Awesome! Last thing — tell me about your goals. What are you interested in studying? What do you want to do after high school? Just type whatever comes to mind." }
+          { role: 'assistant', text: "Almost there — what's on your mind when you think about after high school? Doesn't have to be a plan, just whatever comes to mind." }
         ])
         setOnboardingStep('goals')
         break
@@ -229,24 +343,16 @@ function ChatScreen({ studentId, initialProfile, onSignOut }) {
     }
   }
 
-  const initializeProfile = async (allData) => {
-    try {
-      const res = await fetch(`${API_URL}/api/onboard`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          student_id: studentId,
-          name: allData.name,
-          grade: allData.grade,
-          zip: allData.zip,
-          high_school: allData.school,
-        })
-      })
-      const data = await res.json()
-      if (data.profile) setProfile(data.profile)
-    } catch (err) {
-      console.error('Onboarding init error:', err)
-    }
+  const handleGoalsSubmit = async (e) => {
+    e.preventDefault()
+    if (!input.trim()) return
+    const goals = input.trim()
+    setInput('')
+    const allData = { ...onboardingData, goals }
+    setOnboardingData(allData)
+    setOnboardingStep('done')
+    setMessages(prev => [...prev, { role: 'user', text: goals }])
+    await initializeProfile(allData)
   }
 
   const sendMessage = async (e) => {
@@ -255,13 +361,6 @@ function ChatScreen({ studentId, initialProfile, onSignOut }) {
 
     const userMessage = input.trim()
     setInput('')
-
-    if (onboardingStep === 'goals') {
-      const allData = { ...onboardingData, goals: userMessage }
-      setOnboardingData(allData)
-      setOnboardingStep('done')
-      await initializeProfile(allData)
-    }
 
     setMessages(prev => [...prev, { role: 'user', text: userMessage }])
     setStreaming(true)
@@ -323,9 +422,11 @@ function ChatScreen({ studentId, initialProfile, onSignOut }) {
   }
 
   const showInputBar = onboardingStep === 'goals' || onboardingStep === 'done'
-  const inputPlaceholder = onboardingStep === 'goals'
-    ? 'Tell me about your goals and interests...'
+  const isGoalsStep = onboardingStep === 'goals'
+  const inputPlaceholder = isGoalsStep
+    ? "Anything comes to mind — career ideas, things you're good at, worries..."
     : 'Type a message...'
+  const handleSubmit = isGoalsStep ? handleGoalsSubmit : sendMessage
 
   return (
     <div className="chat-layout">
@@ -343,6 +444,16 @@ function ChatScreen({ studentId, initialProfile, onSignOut }) {
               <p>{msg.text}{msg.role === 'assistant' && streaming && i === messages.length - 1 ? '▌' : ''}</p>
             </div>
           ))}
+
+          {onboardingLoading && (
+            <div className="chat-bubble assistant">
+              <span className="bubble-label">Halda</span>
+              <p style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#667085' }}>
+                <span className="spinner" style={{ borderTopColor: '#1e88e5', borderColor: 'rgba(30,136,229,0.2)', borderTopColor: '#1e88e5' }} />
+                Thinking...
+              </p>
+            </div>
+          )}
 
           {onboardingStep === 'name' && (
             <OnboardingNameInput onSubmit={(v) => advanceOnboarding('name', v)} />
@@ -364,16 +475,16 @@ function ChatScreen({ studentId, initialProfile, onSignOut }) {
         </div>
 
         {showInputBar && (
-          <form className="chat-input-bar" onSubmit={sendMessage}>
+          <form className="chat-input-bar" onSubmit={handleSubmit}>
             <input
               type="text"
               placeholder={inputPlaceholder}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              disabled={streaming}
+              disabled={streaming || onboardingLoading}
             />
-            <button type="submit" disabled={streaming || !input.trim()}>
-              {streaming ? <span className="spinner"></span> : 'Send'}
+            <button type="submit" disabled={streaming || onboardingLoading || !input.trim()}>
+              {(streaming || onboardingLoading) ? <span className="spinner"></span> : 'Send'}
             </button>
           </form>
         )}
@@ -612,7 +723,7 @@ export default function App() {
     const apiUrl = API_URL
 
     try {
-      const response = await fetch(`${apiUrl}/api/send-verification`, {
+      const response = await fetch(`${SMS_API_URL}/api/send-verification`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone })
@@ -647,7 +758,7 @@ export default function App() {
     setLoading(true)
 
     try {
-      const response = await fetch(`${API_URL}/api/verify-code`, {
+      const response = await fetch(`${SMS_API_URL}/api/verify-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone, code })

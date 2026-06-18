@@ -3,3 +3,5 @@ uvicorn
 anthropic
 supabase
 python-dotenv
+google-genai
+openai
