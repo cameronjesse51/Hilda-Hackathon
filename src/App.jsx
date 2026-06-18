@@ -10,6 +10,52 @@ const isEnvSms = rawEnvUrl && (rawEnvUrl.includes(':3001') || rawEnvUrl.includes
 const API_URL = isEnvSms ? 'http://localhost:8000' : (rawEnvUrl || 'http://localhost:8000')
 const SMS_API_URL = import.meta.env.VITE_SMS_API_URL || (isEnvSms ? rawEnvUrl : 'http://localhost:3001')
 const DEV_AUTH_ENABLED = import.meta.env.VITE_ENABLE_DEV_AUTH === 'true'
+const DEMO_KEY = import.meta.env.VITE_DEMO_KEY || ''
+
+const DEMO_PERSONAS = [
+  {
+    phone: '+15550000001',
+    name: 'Maya Torres',
+    badge: '12th Grade',
+    focus: 'Nursing · First-Gen',
+    description: 'First in her family to go to college. Budget cap of $15K/year. Needs guidance every step.',
+  },
+  {
+    phone: '+15550000002',
+    name: 'Caleb Park',
+    badge: '12th Grade',
+    focus: 'Computer Science · High Achiever',
+    description: '3.9 GPA, comparing MIT, CMU, Stanford, Georgia Tech, UIUC & UT Austin. Wants data, not encouragement.',
+  },
+  {
+    phone: '+15550000003',
+    name: 'Rosa Mendez',
+    badge: 'Transfer Student',
+    focus: 'Business · Working Full-Time',
+    description: '45 credits at Mesa CC, age 24, working full-time. Needs credit transfer clarity before anything else.',
+  },
+  {
+    phone: '+15550000004',
+    name: 'Devon Reyes',
+    badge: '10th Grade',
+    focus: 'Environmental Science · Career-First',
+    description: 'Curious about env. science but unsure it\'s a real career. Needs career exploration before any school talk.',
+  },
+  {
+    phone: '+15550000005',
+    name: 'Anika Sharma',
+    badge: '12th Grade · International',
+    focus: 'Computer Science · F-1 Visa',
+    description: 'Applying from India. Needs visa-friendly schools, strong CS programs, and international scholarships.',
+  },
+  {
+    phone: '+15550000006',
+    name: 'Jordan Williams',
+    badge: '10th Grade',
+    focus: 'Blank Slate · Sophomore',
+    description: 'No idea what they want yet. Needs a reason to come back — not pressure to decide.',
+  },
+]
 
 const GRADE_OPTIONS = ['9th', '10th', '11th', '12th']
 
@@ -312,12 +358,97 @@ function OnboardingSchoolSearch({ zip, onSelect }) {
   )
 }
 
+const FONT_SIZES = [12, 14, 16, 18, 20, 22, 24]
+const FONT_FAMILIES = [
+  { label: 'Sans-serif', css: 'inherit',           pdf: 'helvetica' },
+  { label: 'Serif',      css: 'Georgia, serif',    pdf: 'times'     },
+  { label: 'Monospace',  css: 'monospace',         pdf: 'courier'   },
+]
+const ALIGNMENTS = [
+  { value: 'left',    symbol: '⬤\u{FE0E}' },
+  { value: 'center',  symbol: '◉' },
+  { value: 'right',   symbol: '⬤\u{FE0E}' },
+  { value: 'justify', symbol: '☰' },
+]
+
 function EssayEditor({ essay, onUpdate, onDelete, onBack, onBackToChat, sessionToken }) {
   const [title, setTitle] = useState(essay.title)
   const [content, setContent] = useState(essay.content)
   const [saveStatus, setSaveStatus] = useState('Saved')
+  const [exporting, setExporting] = useState(false)
   const debounceRef = useRef(null)
   const wordCount = content.trim() ? content.trim().split(/\s+/).filter(Boolean).length : 0
+
+  const fmt = essay.formatting || {}
+  const [fontSize, setFontSize] = useState(fmt.fontSize ?? 16)
+  const [fontFamily, setFontFamily] = useState(fmt.fontFamily ?? 'inherit')
+  const [textAlign, setTextAlign] = useState(fmt.textAlign ?? 'left')
+
+  const saveFormatting = (patch) => {
+    const updated = { fontSize, fontFamily, textAlign, ...patch }
+    onUpdate(essay.id, { formatting: updated })
+  }
+
+  const changeFontSize = (delta) => {
+    const idx = FONT_SIZES.indexOf(fontSize)
+    const next = FONT_SIZES[Math.max(0, Math.min(FONT_SIZES.length - 1, idx + delta))]
+    setFontSize(next)
+    saveFormatting({ fontSize: next })
+  }
+
+  const changeFontFamily = (css) => {
+    setFontFamily(css)
+    saveFormatting({ fontFamily: css })
+  }
+
+  const changeAlign = (align) => {
+    setTextAlign(align)
+    saveFormatting({ textAlign: align })
+  }
+
+  const exportPdf = async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const { jsPDF } = await import('jspdf')
+      const doc = new jsPDF({ unit: 'mm', format: 'letter' })
+
+      const margin = 25
+      const pageW = doc.internal.pageSize.getWidth()
+      const pageH = doc.internal.pageSize.getHeight()
+      const usableW = pageW - margin * 2
+      const pdfFont = FONT_FAMILIES.find(f => f.css === fontFamily)?.pdf ?? 'helvetica'
+      const alignX = textAlign === 'right' ? pageW - margin : textAlign === 'center' ? pageW / 2 : margin
+
+      // Title
+      doc.setFont(pdfFont, 'bold')
+      doc.setFontSize(20)
+      doc.text(title || 'Untitled Essay', margin, margin + 8)
+
+      // Divider
+      doc.setDrawColor(180, 180, 180)
+      doc.line(margin, margin + 14, pageW - margin, margin + 14)
+
+      // Body
+      doc.setFont(pdfFont, 'normal')
+      doc.setFontSize(fontSize * 0.75)
+      const lines = doc.splitTextToSize(content || '', usableW)
+      let y = margin + 24
+
+      for (const line of lines) {
+        if (y > pageH - margin) {
+          doc.addPage()
+          y = margin + 10
+        }
+        doc.text(line, alignX, y, { align: textAlign === 'justify' ? 'left' : textAlign })
+        y += fontSize * 0.75 * 0.6
+      }
+
+      doc.save(`${title || 'essay'}.pdf`)
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const [chatMessages, setChatMessages] = useState([{
     role: 'assistant',
@@ -412,10 +543,50 @@ function EssayEditor({ essay, onUpdate, onDelete, onBack, onBackToChat, sessionT
             <div className="essay-editor-toolbar">
               <span className="essay-save-status">{saveStatus}</span>
               <span className="essay-word-count">{wordCount} words</span>
+              <button className="essay-export-btn" onClick={exportPdf} disabled={exporting || !content.trim()}>
+                {exporting ? 'Exporting...' : 'Export PDF'}
+              </button>
               <button className="essay-delete-btn" onClick={() => {
                 if (window.confirm('Delete this essay?')) onDelete(essay.id)
               }}>Delete</button>
             </div>
+
+            <div className="essay-format-toolbar">
+              <div className="essay-format-group">
+                <button className="fmt-btn" onClick={() => changeFontSize(-1)} title="Decrease font size">A−</button>
+                <span className="fmt-size-label">{fontSize}px</span>
+                <button className="fmt-btn" onClick={() => changeFontSize(1)} title="Increase font size">A+</button>
+              </div>
+              <div className="essay-format-divider" />
+              <div className="essay-format-group">
+                <select
+                  className="fmt-font-select"
+                  value={fontFamily}
+                  onChange={e => changeFontFamily(e.target.value)}
+                >
+                  {FONT_FAMILIES.map(f => (
+                    <option key={f.css} value={f.css}>{f.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="essay-format-divider" />
+              <div className="essay-format-group">
+                {['left', 'center', 'right', 'justify'].map(align => (
+                  <button
+                    key={align}
+                    className={`fmt-btn fmt-align-btn${textAlign === align ? ' active' : ''}`}
+                    onClick={() => changeAlign(align)}
+                    title={`Align ${align}`}
+                  >
+                    {align === 'left' && '⫴'}
+                    {align === 'center' && '⊟'}
+                    {align === 'right' && '⫳'}
+                    {align === 'justify' && '☰'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <input
               className="essay-title-input"
               type="text"
@@ -425,6 +596,7 @@ function EssayEditor({ essay, onUpdate, onDelete, onBack, onBackToChat, sessionT
             />
             <textarea
               className="essay-textarea"
+              style={{ fontSize: `${fontSize}px`, fontFamily, textAlign }}
               value={content}
               onChange={e => handleChange('content', e.target.value)}
               placeholder="Start writing your essay here..."
@@ -968,9 +1140,42 @@ function PhoneInput({ phone, setPhone, onSubmit, onDeveloperSignIn, loading, err
       </form>
       {onDeveloperSignIn && (
         <button type="button" className="developer-login-link" onClick={onDeveloperSignIn}>
-          Developer sign in
+          Try a demo
         </button>
       )}
+    </div>
+  )
+}
+
+function DemoScreen({ onSelect, onCancel, onKeySignIn, loading, error }) {
+  return (
+    <div className="form-container demo-container">
+      <h1>Demo Mode</h1>
+      <p className="subtitle">Select a student persona to explore Halda</p>
+      {error && <div className="error-message show">{error}</div>}
+      <div className="demo-persona-grid">
+        {DEMO_PERSONAS.map(p => (
+          <button
+            key={p.phone}
+            className="demo-persona-card"
+            onClick={() => onSelect(p.phone)}
+            disabled={loading}
+          >
+            <div className="demo-persona-header">
+              <span className="demo-persona-name">{p.name}</span>
+              <span className="demo-persona-badge">{p.badge}</span>
+            </div>
+            <div className="demo-persona-focus">{p.focus}</div>
+            <p className="demo-persona-desc">{p.description}</p>
+          </button>
+        ))}
+      </div>
+      <button type="button" className="developer-login-link" onClick={onKeySignIn} disabled={loading}>
+        Sign in with access key
+      </button>
+      <button type="button" className="developer-login-link" onClick={onCancel} disabled={loading}>
+        ← Back to sign in
+      </button>
     </div>
   )
 }
@@ -1144,6 +1349,33 @@ export default function App() {
     }
   }
 
+  const handleDemoLogin = async (personaPhone) => {
+    setError('')
+    setLoading(true)
+    try {
+      const response = await fetch(`${API_URL}/auth/demo-session`, {
+        method: 'POST',
+        headers: {
+          'X-Demo-Phone': personaPhone,
+        },
+      })
+      const data = await response.json()
+      if (!response.ok || !data.token) {
+        setError(data.detail || 'Demo sign in failed')
+        return
+      }
+      const profileResponse = await fetch(`${API_URL}/profile/me`, {
+        headers: { Authorization: `Bearer ${data.token}` },
+      })
+      const profile = profileResponse.ok ? await profileResponse.json() : null
+      startChat(data.student_id, data.token, profile?.contact?.first_name ? profile : null)
+    } catch {
+      setError('Network error. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const validatePhone = (phoneStr) => {
     return normalizePhone(phoneStr) !== null
   }
@@ -1266,10 +1498,20 @@ export default function App() {
             onSubmit={handlePhoneSubmit}
             loading={loading}
             error={error}
-            onDeveloperSignIn={DEV_AUTH_ENABLED ? () => {
+            onDeveloperSignIn={() => {
               setError('')
-              setStep('developer')
-            } : null}
+              setStep('demo')
+            }}
+          />
+        )}
+
+        {step === 'demo' && (
+          <DemoScreen
+            onSelect={handleDemoLogin}
+            onCancel={() => { setError(''); setStep('phone') }}
+            onKeySignIn={() => { setError(''); setStep('developer') }}
+            loading={loading}
+            error={error}
           />
         )}
 

@@ -21,7 +21,7 @@ These are the judge's test cases. If two feel the same, the agent is not persona
 - **Maya, 17, first-gen** — wants nursing, family can't pay more than $15K/year, needs the agent to lead her
 - **Caleb, 18, high achiever** — 3.9 GPA, wants CS at a top-20 school, comparing 6 schools, wants data not encouragement
 - **Rosa, 24, transfer** — community college, working full-time, needs credit transfer info before anything else
-- **Devon, 16, career-first** — interested in environmental science but unsure if it's a real career, agent must lead with career exploration before ever mentioning schools
+- **Devon, 16, career-first** — interested in environmental science but unsure if it's a real career, agent must lead0
 - **Anika, 17, international** — applying from India, needs visa-friendly schools, strong CS programs, international scholarships
 - **Jordan, 15, sophomore** — complete blank slate, needs a reason to come back next month, agent should make the process feel non-overwhelming
 

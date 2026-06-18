@@ -58,11 +58,14 @@ def create_session_token(student_id: str, phone: str) -> tuple[str, int]:
     return f"{unsigned_token}.{signature}", expires_at
 
 
-def validate_dev_auth_key(provided_key: str) -> str:
-    """Validate the opt-in developer bypass and return its dedicated phone."""
+def validate_dev_auth_key(provided_key: str, demo_phone: str | None = None) -> str:
+    """Validate the opt-in developer bypass and return the phone to use.
+
+    If demo_phone is provided it must be in the DEMO_PERSONA_PHONES allow-list;
+    otherwise falls back to DEV_AUTH_PHONE.
+    """
     enabled = os.environ.get("ENABLE_DEV_AUTH", "").strip().lower() == "true"
     if not enabled:
-        # Hide the bypass endpoint when it is not explicitly enabled.
         raise HTTPException(status_code=404, detail="Not found")
 
     expected_key = os.environ.get("DEV_AUTH_KEY", "")
@@ -70,6 +73,20 @@ def validate_dev_auth_key(provided_key: str) -> str:
         raise HTTPException(status_code=503, detail="Developer auth is not configured")
     if not provided_key or not hmac.compare_digest(provided_key, expected_key):
         raise HTTPException(status_code=401, detail="Invalid developer credentials")
+
+    if demo_phone:
+        allowed = {
+            p.strip()
+            for p in os.environ.get("DEMO_PERSONA_PHONES", "").split(",")
+            if p.strip()
+        }
+        try:
+            normalized = normalize_phone_e164(demo_phone)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid demo phone number")
+        if normalized not in allowed:
+            raise HTTPException(status_code=403, detail="Demo persona not found")
+        return normalized
 
     try:
         return normalize_phone_e164(os.environ.get("DEV_AUTH_PHONE", ""))
