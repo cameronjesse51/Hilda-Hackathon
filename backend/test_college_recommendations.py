@@ -15,6 +15,18 @@ def profile(*, budget=None, gpa=None, major=""):
 
 
 class CollegeRecommendationNormalizationTests(unittest.TestCase):
+    def test_marks_explicit_comparison_request_for_the_client(self):
+        payload = normalize_college_results(
+            [{"id": "one", "name": "One"}, {"id": "two", "name": "Two"}],
+            profile=profile(),
+            filters={},
+            query="Compare these schools",
+            comparison_requested=True,
+            now=NOW,
+        )
+
+        self.assertTrue(payload["query"]["comparison_requested"])
+
     def test_normalizes_aliases_budget_rates_and_source(self):
         payload = normalize_college_results(
             [{

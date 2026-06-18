@@ -172,6 +172,13 @@ TOOLS = [
                     "type": "integer",
                     "description": "Number of results to return, default 5",
                 },
+                "comparison_requested": {
+                    "type": "boolean",
+                    "description": (
+                        "Set true when the student explicitly asks to compare the returned "
+                        "schools side by side. The client will open the comparison automatically."
+                    ),
+                },
             },
             "required": ["query"],
         },

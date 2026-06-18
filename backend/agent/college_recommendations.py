@@ -440,6 +440,7 @@ def normalize_college_results(
     profile: dict,
     filters: dict,
     query: str,
+    comparison_requested: bool = False,
     now: datetime | None = None,
 ) -> dict:
     generated_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -458,6 +459,7 @@ def normalize_college_results(
             "text": query,
             "requested_program": program,
             "student_budget_usd": budget,
+            "comparison_requested": comparison_requested is True,
         },
         "colleges": [
             normalize_college_row(

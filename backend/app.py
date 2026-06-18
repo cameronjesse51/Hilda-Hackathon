@@ -329,9 +329,10 @@ def _prepare_onboarding(req: OnboardRequest, profile: dict) -> tuple[dict, str]:
         "sophomore": (
             f"This is {first_name}'s first session. They're a sophomore — early in the process. "
             "Open by making them feel like this is easy, not overwhelming. "
-            "Acknowledge what they shared about their interests/goals briefly, then give them "
-            "ONE small, concrete thing to think about or do before next time. "
-            "End with a hook that makes them want to come back. Do NOT mention specific colleges yet."
+            "Acknowledge what they shared about their interests/goals and respond to the request "
+            "they made. If they explicitly requested college recommendations, search, or comparison, "
+            "call search_colleges now and give them the results. Otherwise, offer one useful next step "
+            "and keep the conversation open naturally."
         ),
         "junior": (
             f"This is {first_name}'s first session. They're a junior — the process is real now. "
@@ -357,6 +358,8 @@ def _prepare_onboarding(req: OnboardRequest, profile: dict) -> tuple[dict, str]:
         f"[SYSTEM: First session for student {student_id}. "
         f"Student just completed onboarding. Their stated goals: \"{req.goals}\". "
         f"{stage_context.get(stage, stage_context['sophomore'])} "
+        f"Treat the stated goals as the student's latest explicit message. Fulfill any direct "
+        f"request in those goals during this response; do not postpone it until a later turn. "
         f"Their pre-extracted profile context is available in the system prompt. "
         f"Call update_profile immediately to refine any inferences from their goals text, "
         f"then deliver your opening response.]"

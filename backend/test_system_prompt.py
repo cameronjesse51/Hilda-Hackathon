@@ -20,6 +20,7 @@ class SystemPromptTests(unittest.TestCase):
             "An explicit request always authorizes an immediate search",
             prompt,
         )
+        self.assertIn("comparison_requested to true", prompt)
         self.assertNotIn("End every session with a hook", prompt)
         self.assertNotIn("before we talk again", prompt)
 

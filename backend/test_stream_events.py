@@ -14,6 +14,7 @@ def valid_payload():
             "text": "Nursing in Utah",
             "requested_program": "Nursing",
             "student_budget_usd": 15000,
+            "comparison_requested": True,
         },
         "colleges": [],
     }

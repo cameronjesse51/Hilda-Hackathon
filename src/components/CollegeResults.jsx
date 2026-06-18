@@ -6,7 +6,10 @@ const MAX_COMPARISON_SCHOOLS = 3
 
 export default function CollegeResults({ resultSet }) {
   const colleges = resultSet?.colleges || []
-  const [selectedIds, setSelectedIds] = useState([])
+  const [selectedIds, setSelectedIds] = useState(() => {
+    if (!resultSet?.query?.comparison_requested) return []
+    return colleges.slice(0, MAX_COMPARISON_SCHOOLS).map(college => college.college_id)
+  })
 
   const toggleComparison = (collegeId) => {
     setSelectedIds(current => {

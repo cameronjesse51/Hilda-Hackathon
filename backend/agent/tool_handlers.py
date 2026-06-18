@@ -193,6 +193,7 @@ def _handle_search_colleges(tool_input: dict, profile: dict) -> tuple[str, dict]
         profile=profile,
         filters=filters,
         query=query,
+        comparison_requested=tool_input.get("comparison_requested", False),
     )
     try:
         db.table("college_recommendation_sets").insert(
