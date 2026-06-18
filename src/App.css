@@ -27,14 +27,8 @@ body {
 }
 
 .halda-logo {
-  font-size: 72px;
-  font-weight: 600;
-  letter-spacing: 16px;
-  color: #fff;
-  text-align: center;
-  font-family: 'Rajdhani', sans-serif;
-  text-transform: uppercase;
-  line-height: 1;
+  width: 220px;
+  max-width: 80%;
 }
 
 /* Right: Form */

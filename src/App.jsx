@@ -630,7 +630,7 @@ export default function App() {
   return (
     <div className="container">
       <div className="branding-side">
-        <div className="halda-logo">HALDA</div>
+        <img src="/halda_logo_white.svg" alt="Halda" className="halda-logo" />
         <button
           type="button"
           className="dev-skip-btn"
