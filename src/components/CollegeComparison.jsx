@@ -210,6 +210,18 @@ function comparisonRows(colleges) {
         college.program_fit?.facts?.source_year,
       ),
     },
+    {
+      id: 'credentials',
+      label: 'Available credentials',
+      available: college => {
+        const creds = college.program_fit?.facts?.credentials
+        return Array.isArray(creds) && creds.length > 0
+      },
+      value: college => {
+        const creds = college.program_fit?.facts?.credentials
+        return Array.isArray(creds) && creds.length > 0 ? creds.join(', ') : '—'
+      },
+    },
   ]
 
   return rows.filter(row => row.critical || colleges.some(row.available))

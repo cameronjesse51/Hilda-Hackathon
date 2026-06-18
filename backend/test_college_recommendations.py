@@ -321,6 +321,47 @@ class CollegeRecommendationNormalizationTests(unittest.TestCase):
         self.assertEqual(cost_fit["budget_difference"], -2000)
         self.assertFalse(cost_fit["within_budget"])
 
+    def test_credentials_appear_in_program_fit(self):
+        payload = normalize_college_results(
+            [{
+                "unitid": "cred-school",
+                "name": "Credential College",
+                "enriched_credentials": ["Bachelor's degree", "Master's degree"],
+                "enriched_awards_by_credential": {
+                    "Bachelor's degree": 30,
+                    "Master's degree": 12,
+                },
+                "programs": ["Computer Science"],
+                "program_cip_codes": ["11.0101"],
+                "program_awards_last_year": 42,
+            }],
+            profile=profile(major="Computer Science"),
+            filters={},
+            query="CS programs",
+            now=NOW,
+        )
+        program_fit = payload["colleges"][0]["program_fit"]
+        self.assertEqual(
+            program_fit["facts"]["credentials"],
+            ["Bachelor's degree", "Master's degree"],
+        )
+        self.assertEqual(
+            program_fit["facts"]["awards_by_credential"],
+            {"Bachelor's degree": 30, "Master's degree": 12},
+        )
+
+    def test_credentials_null_when_absent(self):
+        payload = normalize_college_results(
+            [{"id": "no-cred", "name": "No Credential Data"}],
+            profile=profile(),
+            filters={},
+            query="A college",
+            now=NOW,
+        )
+        program_fit = payload["colleges"][0]["program_fit"]
+        self.assertIsNone(program_fit["facts"]["credentials"])
+        self.assertIsNone(program_fit["facts"]["awards_by_credential"])
+
 
 if __name__ == "__main__":
     unittest.main()

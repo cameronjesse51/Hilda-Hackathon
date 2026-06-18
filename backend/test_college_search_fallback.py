@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from backend.agent.tool_handlers import (
     _canonicalize_college_row,
@@ -7,6 +8,7 @@ from backend.agent.tool_handlers import (
     _location_states,
     _structured_fallback_rows,
 )
+from backend.agent.cip_resolver import CREDENTIAL_LEVELS
 
 
 class FakeResponse:
@@ -58,8 +60,10 @@ class FakeDb:
 
 
 class CollegeSearchFallbackTests(unittest.TestCase):
-    def test_rpc_receives_size_and_requested_program_filters(self):
+    @patch("backend.agent.tool_handlers.resolve_cip_codes", return_value=[])
+    def test_rpc_receives_size_and_requested_program_filters(self, _mock):
         params = _college_rpc_params(
+            None,
             [0.1, 0.2],
             {
                 "school_size": "medium",
@@ -75,8 +79,10 @@ class CollegeSearchFallbackTests(unittest.TestCase):
         self.assertEqual(params["filter_state"], ["CO"])
         self.assertTrue(params["requires_cs"])
 
-    def test_rpc_uses_profile_major_when_program_filter_is_absent(self):
+    @patch("backend.agent.tool_handlers.resolve_cip_codes", return_value=[])
+    def test_rpc_uses_profile_major_when_program_filter_is_absent(self, _mock):
         params = _college_rpc_params(
+            None,
             [0.1],
             {},
             {"academic": {"intended_major": "Biology"}},
@@ -84,6 +90,44 @@ class CollegeSearchFallbackTests(unittest.TestCase):
         )
 
         self.assertEqual(params["requested_program"], "Biology")
+
+    @patch("backend.agent.tool_handlers.resolve_cip_codes", return_value=["11.0101", "11.0701"])
+    def test_rpc_params_include_cip_codes_when_resolved(self, _mock):
+        params = _college_rpc_params(
+            None,
+            [0.1],
+            {"programs": ["Computer Science"]},
+            {},
+            5,
+        )
+
+        self.assertEqual(params["requested_cip_codes"], ["11.0101", "11.0701"])
+        self.assertEqual(params["requested_program"], "Computer Science")
+
+    @patch("backend.agent.tool_handlers.resolve_cip_codes", return_value=[])
+    def test_rpc_params_fall_back_when_no_cip_codes(self, _mock):
+        params = _college_rpc_params(
+            None,
+            [0.1],
+            {"programs": ["Basket Weaving"]},
+            {},
+            5,
+        )
+
+        self.assertIsNone(params["requested_cip_codes"])
+        self.assertEqual(params["requested_program"], "Basket Weaving")
+
+    @patch("backend.agent.tool_handlers.resolve_cip_codes", return_value=[])
+    def test_credential_filter_maps_enum_to_description(self, _mock):
+        params = _college_rpc_params(
+            None,
+            [0.1],
+            {"programs": ["Nursing"], "credential_level": "bachelor"},
+            {},
+            5,
+        )
+
+        self.assertEqual(params["filter_credential"], "Bachelor's degree")
 
     def test_recovers_colorado_from_natural_language(self):
         self.assertEqual(

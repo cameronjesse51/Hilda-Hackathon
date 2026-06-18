@@ -402,6 +402,8 @@ def normalize_college_row(
     if cip_codes is None and cip_code is not None:
         cip_codes = [str(cip_code)]
     program_awards = _number(_first(row, "program_awards_last_year", "awards_last_year"))
+    credentials = _string_list(_first(row, "enriched_credentials", "credential_levels"))
+    awards_by_credential = row.get("enriched_awards_by_credential")
     classification = _classification(row, profile, admission_rate)
     match_score = _match_score(row)
 
@@ -439,6 +441,7 @@ def normalize_college_row(
         (international_rate, "campus.facts.international_rate"),
         (matched_programs, "program_fit.facts.matched_programs"),
         (cip_codes, "program_fit.facts.cip_codes"),
+        (credentials, "program_fit.facts.credentials"),
         (program_awards, "program_fit.facts.awards_last_year"),
     ):
         if value is not None:
@@ -510,7 +513,9 @@ def normalize_college_row(
             "facts": {
                 "matched_programs": matched_programs,
                 "cip_codes": cip_codes,
+                "credentials": credentials,
                 "awards_last_year": program_awards,
+                "awards_by_credential": awards_by_credential,
                 "source_year": source_years["program"],
             },
             "personalized": {

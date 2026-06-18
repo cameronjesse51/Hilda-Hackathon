@@ -17,6 +17,7 @@ const SOURCE_FIELD_LABELS = {
   'program_fit.facts.matched_programs': 'matching programs',
   'program_fit.facts.cip_codes': 'program CIP codes',
   'program_fit.facts.awards_last_year': 'recent program completions',
+  'program_fit.facts.credentials': 'available credentials',
   'program_fit.personalized.status': 'program fit',
   'admissions.personalized.classification': 'admission classification',
   name: 'institution name',
@@ -98,6 +99,10 @@ export default function CollegeCard({ college, selected = false, comparisonDisab
     },
   ]
   if (programPersonalized.requested) {
+    const credentials = programFacts.credentials
+    const credentialSummary = Array.isArray(credentials) && credentials.length > 0
+      ? credentials.join(', ')
+      : null
     criticalStats.push({
       label: programPersonalized.requested,
       value: programPersonalized.status === 'unknown'
@@ -105,7 +110,7 @@ export default function CollegeCard({ college, selected = false, comparisonDisab
         : formatStatus(programPersonalized.status),
       detail: programPersonalized.status === 'unknown'
         ? 'Confirm the exact major and credential with the school.'
-        : null,
+        : credentialSummary,
       missing: programPersonalized.status === 'unknown',
     })
   }

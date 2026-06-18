@@ -219,7 +219,7 @@
         "facts": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["matched_programs", "cip_codes", "awards_last_year", "source_year"],
+          "required": ["matched_programs", "cip_codes", "credentials", "awards_last_year", "awards_by_credential", "source_year"],
           "properties": {
             "matched_programs": {
               "type": ["array", "null"],
@@ -229,7 +229,17 @@
               "type": ["array", "null"],
               "items": { "type": "string" }
             },
+            "credentials": {
+              "type": ["array", "null"],
+              "items": { "type": "string" },
+              "description": "Credential levels available for the matched programs"
+            },
             "awards_last_year": { "$ref": "#/$defs/nullableNumber" },
+            "awards_by_credential": {
+              "type": ["object", "null"],
+              "additionalProperties": { "type": "number" },
+              "description": "Program completions broken down by credential level"
+            },
             "source_year": { "$ref": "#/$defs/sourceYear" }
           }
         },

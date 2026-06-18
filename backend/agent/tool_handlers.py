@@ -7,6 +7,7 @@ import re
 try:
     from backend.agent.profile import merge_profile_update
     from backend.agent.college_recommendations import normalize_college_results
+    from backend.agent.cip_resolver import resolve_cip_codes, CREDENTIAL_LEVELS
     from backend.agent.internship import (
         start_internship,
         get_active_internship,
@@ -17,6 +18,7 @@ try:
 except ModuleNotFoundError:
     from agent.profile import merge_profile_update
     from agent.college_recommendations import normalize_college_results
+    from agent.cip_resolver import resolve_cip_codes, CREDENTIAL_LEVELS
     from agent.internship import (
         start_internship,
         get_active_internship,
@@ -141,10 +143,21 @@ def _requested_program_name(filters: dict, profile: dict) -> str | None:
 
 
 def _college_rpc_params(
-    query_embedding: list[float], filters: dict, profile: dict, limit: int
+    db, query_embedding: list[float], filters: dict, profile: dict, limit: int
 ) -> dict:
     programs = filters.get("programs") or []
     programs_lower = [str(program).lower() for program in programs]
+    requested_program = _requested_program_name(filters, profile)
+
+    resolved_cip_codes = None
+    if requested_program:
+        resolved_cip_codes = resolve_cip_codes(db, requested_program) or None
+
+    credential_filter = None
+    raw_credential = filters.get("credential_level")
+    if raw_credential and raw_credential in CREDENTIAL_LEVELS:
+        credential_filter = CREDENTIAL_LEVELS[raw_credential]
+
     return {
         "query_embedding": query_embedding,
         "max_net_price": filters.get("max_net_price"),
@@ -161,7 +174,9 @@ def _college_rpc_params(
             "engineering" in program for program in programs_lower
         ),
         "filter_school_size": filters.get("school_size"),
-        "requested_program": _requested_program_name(filters, profile),
+        "requested_program": requested_program,
+        "requested_cip_codes": resolved_cip_codes,
+        "filter_credential": credential_filter,
         "match_count": limit,
     }
 
@@ -239,6 +254,54 @@ def _enrich_semantic_rows(db, rows: list[dict]) -> list[dict]:
     except Exception as exc:
         log.warning("Could not enrich semantic college rows: %s", exc)
         return [_canonicalize_college_row(row) for row in rows]
+
+
+def _enrich_program_details(
+    db, rows: list[dict], requested_program: str | None, resolved_cip_codes: list[str] | None
+) -> list[dict]:
+    """Query institution_specialties for each result to get full credential detail."""
+    if not requested_program and not resolved_cip_codes:
+        return rows
+    ids = [str(row.get("unitid")) for row in rows if row.get("unitid")]
+    if not ids:
+        return rows
+    try:
+        query = (
+            db.table("institution_specialties")
+            .select('"UNITID","CIPDESC","CIPCODE","CREDDESC","AWARDS_LAST_YEAR"')
+            .in_('"UNITID"', ids)
+        )
+        if resolved_cip_codes:
+            query = query.in_('"CIPCODE"', resolved_cip_codes)
+        elif requested_program:
+            query = query.ilike('"CIPDESC"', f"%{requested_program}%")
+        specialty_rows = query.execute().data or []
+    except Exception as exc:
+        log.warning("Program enrichment query failed: %s", exc)
+        return rows
+
+    by_school: dict[str, list[dict]] = {}
+    for srow in specialty_rows:
+        by_school.setdefault(str(srow.get("UNITID", "")), []).append(srow)
+
+    enriched = []
+    for row in rows:
+        row = dict(row)
+        school_programs = by_school.get(str(row.get("unitid", "")), [])
+        if school_programs:
+            row["enriched_credentials"] = sorted({
+                srow["CREDDESC"] for srow in school_programs if srow.get("CREDDESC")
+            })
+            row["enriched_programs"] = sorted({
+                srow["CIPDESC"] for srow in school_programs if srow.get("CIPDESC")
+            })
+            awards_by_cred: dict[str, int] = {}
+            for srow in school_programs:
+                cred = srow.get("CREDDESC") or "Unknown"
+                awards_by_cred[cred] = awards_by_cred.get(cred, 0) + (srow.get("AWARDS_LAST_YEAR") or 0)
+            row["enriched_awards_by_credential"] = awards_by_cred
+        enriched.append(row)
+    return enriched
 
 
 def _structured_fallback_rows(db, filters: dict, query: str, limit: int) -> list[dict]:
@@ -442,7 +505,7 @@ def _handle_search_colleges(tool_input: dict, profile: dict) -> tuple[str, dict]
     except Exception as e:
         log.error("Embedding failed: %s", e)
 
-    rpc_params = _college_rpc_params(query_embedding, filters, profile, limit)
+    rpc_params = _college_rpc_params(db, query_embedding, filters, profile, limit)
 
     semantic_results = []
     if query_embedding is not None:
@@ -461,6 +524,13 @@ def _handle_search_colleges(tool_input: dict, profile: dict) -> tuple[str, dict]
         filters,
         query,
         limit,
+    )
+
+    results = _enrich_program_details(
+        db,
+        results,
+        _requested_program_name(filters, profile),
+        rpc_params.get("requested_cip_codes"),
     )
 
     normalized = normalize_college_results(

@@ -155,6 +155,11 @@ TOOLS = [
                             "items": {"type": "string"},
                             "description": "Required program/major names",
                         },
+                        "credential_level": {
+                            "type": "string",
+                            "enum": ["certificate", "associate", "bachelor", "master", "doctoral"],
+                            "description": "Filter by credential/degree level",
+                        },
                         "school_size": {
                             "type": "string",
                             "enum": ["small", "medium", "large"],

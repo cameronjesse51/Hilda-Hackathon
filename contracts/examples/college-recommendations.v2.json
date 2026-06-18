@@ -63,7 +63,9 @@
         "facts": {
           "matched_programs": ["Registered Nursing"],
           "cip_codes": ["51.3801"],
+          "credentials": ["Bachelor's degree"],
           "awards_last_year": 42,
+          "awards_by_credential": { "Bachelor's degree": 42 },
           "source_year": "2023-24"
         },
         "personalized": { "requested": "Nursing", "status": "available" }
