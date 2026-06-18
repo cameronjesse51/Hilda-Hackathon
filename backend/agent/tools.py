@@ -217,6 +217,73 @@ TOOLS = [
         },
     },
     {
+        "name": "search_scholarships",
+        "description": (
+            "Search the web for scholarships and grants that match the student's profile. "
+            "Call this when the student asks about scholarships, grants, financial aid, or "
+            "'money for college'. Also call proactively for juniors and seniors when a "
+            "financial constraint (hard_constraints.max_cost) is known. "
+            "Always return results with source links so the student can apply directly. "
+            "Do NOT fabricate scholarship names, amounts, or deadlines."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Natural language description of what to search for, enriched with "
+                        "profile signals. E.g. 'first-generation college student scholarships "
+                        "for nursing majors in Texas 2026'"
+                    ),
+                },
+                "filters": {
+                    "type": "object",
+                    "description": "Optional filters to narrow the search",
+                    "properties": {
+                        "major": {
+                            "type": "string",
+                            "description": "Intended major or field of study",
+                        },
+                        "state": {
+                            "type": "string",
+                            "description": "US state abbreviation or full name to focus on state-specific awards",
+                        },
+                        "gpa_min": {
+                            "type": "number",
+                            "description": "Minimum GPA required for eligibility",
+                        },
+                        "ethnicity": {
+                            "type": "string",
+                            "description": "Ethnicity-specific scholarships if the student has expressed this preference",
+                        },
+                        "need_based": {
+                            "type": "boolean",
+                            "description": "Set true to prioritize need-based awards",
+                        },
+                        "merit_based": {
+                            "type": "boolean",
+                            "description": "Set true to prioritize merit-based awards",
+                        },
+                        "deadline_within_days": {
+                            "type": "integer",
+                            "description": "Return only scholarships with deadlines within this many days",
+                        },
+                        "amount_min": {
+                            "type": "integer",
+                            "description": "Minimum award amount in USD",
+                        },
+                    },
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max number of results to return (default 5, max 10)",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "score_probe_response",
         "description": (
             "Score a student's response to a micro-internship probe question. "

@@ -1,0 +1,292 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://halda.ai/contracts/college-recommendations.v2.schema.json",
+  "title": "Halda college recommendation results v2",
+  "description": "Separates sourced institution facts from student-specific calculations and fit assessments.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event", "recommendation_set_id", "generated_at", "query", "colleges"],
+  "properties": {
+    "schema_version": { "const": "2.0" },
+    "event": { "const": "college_results" },
+    "recommendation_set_id": { "type": "string", "minLength": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "query": { "$ref": "#/$defs/queryContext" },
+    "colleges": {
+      "type": "array",
+      "maxItems": 10,
+      "items": { "$ref": "#/$defs/collegeRecommendation" }
+    }
+  },
+  "$defs": {
+    "nullableNumber": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "nullableRate": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "sourceYear": {
+      "description": "Raw reporting year or academic-year label supplied by the source; never inferred from retrieval time.",
+      "type": ["integer", "string", "null"]
+    },
+    "queryContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "requested_program", "student_budget_usd", "comparison_requested"],
+      "properties": {
+        "text": { "type": "string" },
+        "requested_program": { "type": ["string", "null"] },
+        "student_budget_usd": { "$ref": "#/$defs/nullableNumber" },
+        "comparison_requested": { "type": "boolean" }
+      }
+    },
+    "collegeRecommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "college_id", "name", "location", "cost", "admissions", "outcomes",
+        "campus", "program_fit", "fit", "sources"
+      ],
+      "properties": {
+        "college_id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "location": { "$ref": "#/$defs/location" },
+        "cost": { "$ref": "#/$defs/cost" },
+        "admissions": { "$ref": "#/$defs/admissions" },
+        "outcomes": { "$ref": "#/$defs/outcomes" },
+        "campus": { "$ref": "#/$defs/campus" },
+        "program_fit": { "$ref": "#/$defs/programFit" },
+        "fit": { "$ref": "#/$defs/fit" },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/sourceAttribution" }
+        }
+      }
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["city", "state"],
+      "properties": {
+        "city": { "type": ["string", "null"] },
+        "state": { "type": ["string", "null"] }
+      }
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["facts", "personalized"],
+      "properties": {
+        "facts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["currency", "net_price", "median_grad_debt", "source_years"],
+          "properties": {
+            "currency": { "const": "USD" },
+            "net_price": { "$ref": "#/$defs/nullableNumber" },
+            "median_grad_debt": { "$ref": "#/$defs/nullableNumber" },
+            "source_years": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["net_price", "median_grad_debt"],
+              "properties": {
+                "net_price": { "$ref": "#/$defs/sourceYear" },
+                "median_grad_debt": { "$ref": "#/$defs/sourceYear" }
+              }
+            }
+          }
+        },
+        "personalized": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["student_budget", "budget_difference", "within_budget"],
+          "properties": {
+            "student_budget": { "$ref": "#/$defs/nullableNumber" },
+            "budget_difference": { "type": ["number", "null"] },
+            "within_budget": { "type": ["boolean", "null"] }
+          }
+        }
+      }
+    },
+    "admissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["facts", "personalized"],
+      "properties": {
+        "facts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["admission_rate", "sat_average", "source_years"],
+          "properties": {
+            "admission_rate": { "$ref": "#/$defs/nullableRate" },
+            "sat_average": { "$ref": "#/$defs/nullableNumber" },
+            "source_years": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["admission_rate", "sat_average"],
+              "properties": {
+                "admission_rate": { "$ref": "#/$defs/sourceYear" },
+                "sat_average": { "$ref": "#/$defs/sourceYear" }
+              }
+            }
+          }
+        },
+        "personalized": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["classification"],
+          "properties": {
+            "classification": { "$ref": "#/$defs/classification" }
+          }
+        }
+      }
+    },
+    "classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "reason", "basis"],
+      "properties": {
+        "label": { "enum": ["reach", "target", "likely", "unknown"] },
+        "reason": { "type": "string", "minLength": 1 },
+        "basis": { "enum": ["student_academic_profile", "admission_rate_only", "insufficient_data"] }
+      }
+    },
+    "outcomes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["facts"],
+      "properties": {
+        "facts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["graduation_rate", "transfer_rate", "median_earnings_10yr", "source_years"],
+          "properties": {
+            "graduation_rate": { "$ref": "#/$defs/nullableRate" },
+            "transfer_rate": { "$ref": "#/$defs/nullableRate" },
+            "median_earnings_10yr": { "$ref": "#/$defs/nullableNumber" },
+            "source_years": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["graduation_rate", "transfer_rate", "earnings"],
+              "properties": {
+                "graduation_rate": { "$ref": "#/$defs/sourceYear" },
+                "transfer_rate": { "$ref": "#/$defs/sourceYear" },
+                "earnings": { "$ref": "#/$defs/sourceYear" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "campus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["facts"],
+      "properties": {
+        "facts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enrollment", "control", "size_category", "pell_recipient_rate",
+            "international_rate", "source_year"
+          ],
+          "properties": {
+            "enrollment": { "$ref": "#/$defs/nullableNumber" },
+            "control": {
+              "type": ["string", "null"],
+              "enum": ["public", "private_nonprofit", "private_for_profit", null]
+            },
+            "size_category": {
+              "type": ["string", "null"],
+              "enum": ["small", "medium", "large", null]
+            },
+            "pell_recipient_rate": { "$ref": "#/$defs/nullableRate" },
+            "international_rate": { "$ref": "#/$defs/nullableRate" },
+            "source_year": { "$ref": "#/$defs/sourceYear" }
+          }
+        }
+      }
+    },
+    "programFit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["facts", "personalized"],
+      "properties": {
+        "facts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["matched_programs", "cip_codes", "awards_last_year", "source_year"],
+          "properties": {
+            "matched_programs": {
+              "type": ["array", "null"],
+              "items": { "type": "string" }
+            },
+            "cip_codes": {
+              "type": ["array", "null"],
+              "items": { "type": "string" }
+            },
+            "awards_last_year": { "$ref": "#/$defs/nullableNumber" },
+            "source_year": { "$ref": "#/$defs/sourceYear" }
+          }
+        },
+        "personalized": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["requested", "status"],
+          "properties": {
+            "requested": { "type": ["string", "null"] },
+            "status": { "enum": ["available", "unavailable", "unknown"] }
+          }
+        }
+      }
+    },
+    "fit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["score", "reasons"],
+      "properties": {
+        "score": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": { "$ref": "#/$defs/matchReason" }
+        }
+      }
+    },
+    "matchReason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "text", "evidence"],
+      "properties": {
+        "category": { "enum": ["academic", "financial", "program", "location", "outcomes", "culture"] },
+        "text": { "type": "string", "minLength": 1 },
+        "evidence": { "type": ["string", "null"] }
+      }
+    },
+    "sourceAttribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "url", "retrieved_at", "fields"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "url": { "type": "string", "format": "uri" },
+        "retrieved_at": { "type": "string", "format": "date-time" },
+        "fields": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

@@ -15,6 +15,11 @@ export function formatPercent(value) {
   }).format(Number(value))
 }
 
+export function formatNumber(value) {
+  if (value == null || !Number.isFinite(Number(value))) return 'Not reported'
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(Number(value))
+}
+
 export function formatStatus(value) {
   if (!value || value === 'unknown') return 'Not reported'
   return String(value)

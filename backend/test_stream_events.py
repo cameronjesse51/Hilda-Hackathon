@@ -6,7 +6,7 @@ from backend.agent.stream_events import college_results_event
 
 def valid_payload():
     return {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "event": "college_results",
         "recommendation_set_id": "rec_test",
         "generated_at": "2026-06-18T18:30:00Z",
@@ -44,7 +44,7 @@ class CollegeResultsStreamEventTests(unittest.TestCase):
 
     def test_requires_current_contract_version_and_shape(self):
         payload = valid_payload()
-        payload["schema_version"] = "2.0"
+        payload["schema_version"] = "1.0"
         self.assertIsNone(
             college_results_event("search_colleges", json.dumps(payload))
         )

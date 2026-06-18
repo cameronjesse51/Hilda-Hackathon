@@ -6,7 +6,8 @@
   "query": {
     "text": "Affordable nursing programs near Utah",
     "requested_program": "Nursing",
-    "student_budget_usd": 15000
+    "student_budget_usd": 15000,
+    "comparison_requested": false
   },
   "colleges": [
     {
@@ -37,16 +38,25 @@
       "financials": {
         "currency": "USD",
         "net_price": 13250,
+        "median_grad_debt": 18000,
         "student_budget": 15000,
         "budget_difference": 1750,
         "within_budget": true
       },
       "admissions": {
-        "admission_rate": 0.65
+        "admission_rate": 0.65,
+        "sat_average": 1210
       },
       "outcomes": {
         "graduation_rate": 0.71,
+        "transfer_rate": 0.08,
         "median_earnings_10yr": 58400
+      },
+      "campus": {
+        "enrollment": 12400,
+        "control": "public",
+        "pell_recipient_rate": 0.31,
+        "international_rate": 0.06
       },
       "program": {
         "requested": "Nursing",
@@ -60,9 +70,16 @@
           "retrieved_at": "2026-06-18T18:29:58Z",
           "fields": [
             "financials.net_price",
+            "financials.median_grad_debt",
             "admissions.admission_rate",
+            "admissions.sat_average",
             "outcomes.graduation_rate",
+            "outcomes.transfer_rate",
             "outcomes.median_earnings_10yr",
+            "campus.enrollment",
+            "campus.control",
+            "campus.pell_recipient_rate",
+            "campus.international_rate",
             "program"
           ]
         }

@@ -1,0 +1,99 @@
+{
+  "schema_version": "2.0",
+  "event": "college_results",
+  "recommendation_set_id": "rec_01JY4C8J4QV8R5VFRP2H4B9EYK",
+  "generated_at": "2026-06-18T18:30:00Z",
+  "query": {
+    "text": "Affordable nursing programs near Utah",
+    "requested_program": "Nursing",
+    "student_budget_usd": 15000,
+    "comparison_requested": false
+  },
+  "colleges": [
+    {
+      "college_id": "230764",
+      "name": "Example University",
+      "location": { "city": "Example City", "state": "UT" },
+      "cost": {
+        "facts": {
+          "currency": "USD",
+          "net_price": 13250,
+          "median_grad_debt": 18000,
+          "source_years": { "net_price": "2023-24", "median_grad_debt": 2023 }
+        },
+        "personalized": {
+          "student_budget": 15000,
+          "budget_difference": 1750,
+          "within_budget": true
+        }
+      },
+      "admissions": {
+        "facts": {
+          "admission_rate": 0.65,
+          "sat_average": 1210,
+          "source_years": { "admission_rate": 2024, "sat_average": 2024 }
+        },
+        "personalized": {
+          "classification": {
+            "label": "target",
+            "reason": "The student's academic profile is near the institution's typical admitted range.",
+            "basis": "student_academic_profile"
+          }
+        }
+      },
+      "outcomes": {
+        "facts": {
+          "graduation_rate": 0.71,
+          "transfer_rate": 0.08,
+          "median_earnings_10yr": 58400,
+          "source_years": { "graduation_rate": 2023, "transfer_rate": 2023, "earnings": 2021 }
+        }
+      },
+      "campus": {
+        "facts": {
+          "enrollment": 12400,
+          "control": "public",
+          "size_category": "medium",
+          "pell_recipient_rate": 0.31,
+          "international_rate": 0.06,
+          "source_year": 2024
+        }
+      },
+      "program_fit": {
+        "facts": {
+          "matched_programs": ["Registered Nursing"],
+          "cip_codes": ["51.3801"],
+          "awards_last_year": 42,
+          "source_year": "2023-24"
+        },
+        "personalized": { "requested": "Nursing", "status": "available" }
+      },
+      "fit": {
+        "score": 87,
+        "reasons": [
+          {
+            "category": "financial",
+            "text": "The reported net price is within your annual budget.",
+            "evidence": "$13,250 net price versus a $15,000 budget"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "name": "U.S. Department of Education College Scorecard",
+          "url": "https://collegescorecard.ed.gov/school/?230764",
+          "retrieved_at": "2026-06-18T18:29:58Z",
+          "fields": [
+            "cost.facts.net_price",
+            "cost.facts.median_grad_debt",
+            "admissions.facts.admission_rate",
+            "outcomes.facts.graduation_rate",
+            "outcomes.facts.median_earnings_10yr",
+            "campus.facts.enrollment",
+            "program_fit.facts.matched_programs"
+          ]
+        }
+      ]
+    }
+  ]
+}

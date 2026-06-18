@@ -7,7 +7,7 @@ class RecommendationPersistenceTests(unittest.TestCase):
     def test_record_is_tenant_scoped_and_excludes_contact_and_history(self):
         payload = {
             "recommendation_set_id": "rec_123",
-            "schema_version": "1.0",
+            "schema_version": "2.0",
             "generated_at": "2026-06-18T18:30:00Z",
             "query": {"text": "Nursing", "requested_program": "Nursing"},
             "colleges": [{"college_id": "230764", "name": "Example"}],

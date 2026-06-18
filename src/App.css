@@ -467,6 +467,21 @@ button:disabled {
   font-weight: 700;
 }
 
+.college-match-score small {
+  display: block;
+  margin-top: 2px;
+  color: #667085;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.college-best-for {
+  margin-top: 8px;
+  color: #344054;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .comparison-toggle {
   width: auto;
   min-height: auto;
@@ -510,6 +525,11 @@ button:disabled {
   border-radius: 10px;
 }
 
+.college-stat.missing {
+  background: #fffaf0;
+  border: 1px solid #f4dfb4;
+}
+
 .college-stat span {
   display: block;
   overflow: hidden;
@@ -527,6 +547,18 @@ button:disabled {
   color: #101828;
   font-size: 14px;
   line-height: 1.3;
+}
+
+.college-stat small {
+  display: block;
+  margin-top: 5px;
+  color: #667085;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.college-stat-grid.secondary {
+  margin-top: -6px;
 }
 
 .budget-status {
@@ -687,8 +719,38 @@ button:disabled {
   font-weight: 600;
 }
 
+.college-comparison tbody th small {
+  display: block;
+  margin-top: 2px;
+  color: #98a2b3;
+  font-size: 9px;
+  font-weight: 500;
+}
+
 .college-comparison tbody td {
   color: #344054;
+}
+
+.college-comparison tbody td > span {
+  display: block;
+  line-height: 1.4;
+}
+
+.college-comparison td.comparison-best {
+  background: #eaf8ef;
+  color: #14532d;
+  font-weight: 700;
+}
+
+.college-comparison td.comparison-best small {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #ccebd7;
+  color: #16723a;
+  font-size: 9px;
+  line-height: 1.3;
 }
 
 .college-comparison tbody tr:last-child th,

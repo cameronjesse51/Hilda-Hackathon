@@ -24,7 +24,7 @@ def college_results_event(tool_name: str, tool_output: str) -> dict | None:
         return None
     if payload.get("event") != "college_results":
         return None
-    if payload.get("schema_version") != "1.0":
+    if payload.get("schema_version") != "2.0":
         return None
     if not isinstance(payload.get("colleges"), list):
         return None

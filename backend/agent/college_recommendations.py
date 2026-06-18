@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "2.0"
 EVENT_NAME = "college_results"
 DEFAULT_SOURCE_NAME = "U.S. Department of Education College Scorecard"
 HIGHLY_SELECTIVE_RATE = 0.20
@@ -69,6 +69,16 @@ def _boolean(value: Any) -> bool | None:
     return None
 
 
+def _control_label(value: Any) -> str | None:
+    parsed = _number(value)
+    labels = {
+        1: "public",
+        2: "private_nonprofit",
+        3: "private_for_profit",
+    }
+    return labels.get(parsed)
+
+
 def _string_list(value: Any) -> list[str] | None:
     if value is None:
         return None
@@ -111,6 +121,9 @@ def _requested_program(filters: dict, profile: dict) -> str | None:
 
 def _program_status(row: dict, requested: str | None) -> tuple[str, str | None]:
     cip_code = _first(row, "cip_code", "program_cip_code", "cip")
+    if cip_code is None:
+        cip_codes = _string_list(row.get("program_cip_codes"))
+        cip_code = cip_codes[0] if cip_codes else None
     if not requested:
         return "unknown", str(cip_code) if cip_code else None
 
@@ -347,35 +360,91 @@ def normalize_college_row(
     name = _first(row, "name", "school_name", "institution_name") or "Unknown institution"
     city = _first(row, "city", "school_city")
     state = _first(row, "state", "state_code", "school_state")
+    control_code = _number(_first(row, "control", "ownership", "institution_control"))
+    control = _control_label(control_code)
     net_price = _number(_first(row, "net_price", "avg_net_price", "average_net_price"))
+    if net_price is None:
+        if control_code == 1:
+            net_price = _number(row.get("net_price_pub"))
+        elif control_code in (2, 3):
+            net_price = _number(row.get("net_price_priv"))
+        else:
+            net_price = _number(_first(row, "net_price_pub", "net_price_priv"))
     budget = _number(profile.get("hard_constraints", {}).get("max_cost"))
     if budget is None:
         budget = _number(filters.get("max_net_price"))
     admission_rate = _rate(_first(row, "admission_rate", "acceptance_rate", "admissions_rate"))
+    sat_average = _number(_first(row, "sat_avg", "sat_average", "average_sat"))
     graduation_rate = _rate(_first(row, "graduation_rate", "completion_rate", "completion_rate_4yr"))
+    transfer_rate = _rate(_first(row, "transfer_rate", "student_transfer_rate"))
     earnings = _number(_first(
         row,
+        "median_earnings_10y",
         "median_earnings_10yr",
         "median_earnings",
         "earnings_10yr",
         "median_earnings_10_years",
     ))
+    median_grad_debt = _number(_first(
+        row,
+        "median_grad_debt",
+        "median_graduate_debt",
+        "graduate_debt_median",
+    ))
+    enrollment = _number(_first(row, "enrollment", "student_enrollment", "size"))
+    size_category = _first(row, "size_category", "school_size_category")
+    pell_recipient_rate = _rate(_first(row, "pct_pell", "pell_recipient_rate"))
+    international_rate = _rate(_first(row, "pct_international", "international_rate"))
     program = _requested_program(filters, profile)
     program_status, cip_code = _program_status(row, program)
+    matched_programs = _string_list(_first(row, "programs", "program_names", "majors"))
+    cip_codes = _string_list(row.get("program_cip_codes"))
+    if cip_codes is None and cip_code is not None:
+        cip_codes = [str(cip_code)]
+    program_awards = _number(_first(row, "program_awards_last_year", "awards_last_year"))
     classification = _classification(row, profile, admission_rate)
     match_score = _match_score(row)
 
+    source_years = {
+        "cost": {
+            "net_price": _first(row, "net_price_year", "cost_year"),
+            "median_grad_debt": _first(row, "debt_year", "median_grad_debt_year"),
+        },
+        "admissions": {
+            "admission_rate": _first(row, "admissions_year", "admission_rate_year"),
+            "sat_average": _first(row, "sat_year", "admissions_year"),
+        },
+        "outcomes": {
+            "graduation_rate": _first(row, "completion_year", "graduation_rate_year"),
+            "transfer_rate": _first(row, "transfer_year", "completion_year"),
+            "earnings": _first(row, "earnings_year", "median_earnings_year"),
+        },
+        "campus": _first(row, "campus_year", "enrollment_year", "student_body_year"),
+        "program": _first(row, "program_year", "awards_year"),
+    }
+
     source_fields = []
     for value, field in (
-        (net_price, "financials.net_price"),
-        (admission_rate, "admissions.admission_rate"),
-        (graduation_rate, "outcomes.graduation_rate"),
-        (earnings, "outcomes.median_earnings_10yr"),
+        (net_price, "cost.facts.net_price"),
+        (median_grad_debt, "cost.facts.median_grad_debt"),
+        (admission_rate, "admissions.facts.admission_rate"),
+        (sat_average, "admissions.facts.sat_average"),
+        (graduation_rate, "outcomes.facts.graduation_rate"),
+        (transfer_rate, "outcomes.facts.transfer_rate"),
+        (earnings, "outcomes.facts.median_earnings_10yr"),
+        (enrollment, "campus.facts.enrollment"),
+        (control, "campus.facts.control"),
+        (size_category, "campus.facts.size_category"),
+        (pell_recipient_rate, "campus.facts.pell_recipient_rate"),
+        (international_rate, "campus.facts.international_rate"),
+        (matched_programs, "program_fit.facts.matched_programs"),
+        (cip_codes, "program_fit.facts.cip_codes"),
+        (program_awards, "program_fit.facts.awards_last_year"),
     ):
         if value is not None:
             source_fields.append(field)
     if program_status != "unknown":
-        source_fields.append("program")
+        source_fields.append("program_fit.personalized.status")
     if _first(
         row,
         "gpa_25th",
@@ -388,7 +457,7 @@ def normalize_college_row(
         "avg_gpa",
         "admitted_gpa",
     ) is not None:
-        source_fields.append("classification.gpa_comparison")
+        source_fields.append("admissions.personalized.classification")
 
     difference = budget - net_price if budget is not None and net_price is not None else None
     return {
@@ -398,37 +467,72 @@ def normalize_college_row(
             "city": str(city) if city is not None else None,
             "state": str(state) if state is not None else None,
         },
-        "classification": classification,
-        "match_score": match_score,
-        "match_reasons": _match_reasons(
-            net_price=net_price,
-            budget=budget,
-            requested_program=program,
-            program_status=program_status,
-            classification=classification,
-            graduation_rate=graduation_rate,
-            median_earnings=earnings,
-            match_score=match_score,
-            state=str(state) if state is not None else None,
-            filters=filters,
-            query=query,
-        ),
-        "financials": {
-            "currency": "USD",
-            "net_price": net_price,
-            "student_budget": budget,
-            "budget_difference": difference,
-            "within_budget": difference >= 0 if difference is not None else None,
+        "cost": {
+            "facts": {
+                "currency": "USD",
+                "net_price": net_price,
+                "median_grad_debt": median_grad_debt,
+                "source_years": source_years["cost"],
+            },
+            "personalized": {
+                "student_budget": budget,
+                "budget_difference": difference,
+                "within_budget": difference >= 0 if difference is not None else None,
+            },
         },
-        "admissions": {"admission_rate": admission_rate},
+        "admissions": {
+            "facts": {
+                "admission_rate": admission_rate,
+                "sat_average": sat_average,
+                "source_years": source_years["admissions"],
+            },
+            "personalized": {"classification": classification},
+        },
         "outcomes": {
-            "graduation_rate": graduation_rate,
-            "median_earnings_10yr": earnings,
+            "facts": {
+                "graduation_rate": graduation_rate,
+                "transfer_rate": transfer_rate,
+                "median_earnings_10yr": earnings,
+                "source_years": source_years["outcomes"],
+            },
         },
-        "program": {
-            "requested": program,
-            "status": program_status,
-            "cip_code": cip_code,
+        "campus": {
+            "facts": {
+                "enrollment": enrollment,
+                "control": control,
+                "size_category": str(size_category) if size_category is not None else None,
+                "pell_recipient_rate": pell_recipient_rate,
+                "international_rate": international_rate,
+                "source_year": source_years["campus"],
+            },
+        },
+        "program_fit": {
+            "facts": {
+                "matched_programs": matched_programs,
+                "cip_codes": cip_codes,
+                "awards_last_year": program_awards,
+                "source_year": source_years["program"],
+            },
+            "personalized": {
+                "requested": program,
+                "status": program_status,
+            },
+        },
+        "fit": {
+            "score": match_score,
+            "reasons": _match_reasons(
+                net_price=net_price,
+                budget=budget,
+                requested_program=program,
+                program_status=program_status,
+                classification=classification,
+                graduation_rate=graduation_rate,
+                median_earnings=earnings,
+                match_score=match_score,
+                state=str(state) if state is not None else None,
+                filters=filters,
+                query=query,
+            ),
         },
         "sources": [_source(row, college_id, source_fields, retrieved_at)],
     }

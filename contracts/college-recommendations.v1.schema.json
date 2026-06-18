@@ -52,7 +52,7 @@
     "queryContext": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["text", "requested_program", "student_budget_usd"],
+      "required": ["text", "requested_program", "student_budget_usd", "comparison_requested"],
       "properties": {
         "text": {
           "type": "string"
@@ -62,6 +62,9 @@
         },
         "student_budget_usd": {
           "$ref": "#/$defs/nullableNumber"
+        },
+        "comparison_requested": {
+          "type": "boolean"
         }
       }
     },
@@ -78,6 +81,7 @@
         "financials",
         "admissions",
         "outcomes",
+        "campus",
         "program",
         "sources"
       ],
@@ -119,6 +123,9 @@
         },
         "outcomes": {
           "$ref": "#/$defs/outcomes"
+        },
+        "campus": {
+          "$ref": "#/$defs/campus"
         },
         "program": {
           "$ref": "#/$defs/program"
@@ -187,6 +194,7 @@
       "required": [
         "currency",
         "net_price",
+        "median_grad_debt",
         "student_budget",
         "budget_difference",
         "within_budget"
@@ -196,6 +204,9 @@
           "const": "USD"
         },
         "net_price": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "median_grad_debt": {
           "$ref": "#/$defs/nullableNumber"
         },
         "student_budget": {
@@ -214,23 +225,54 @@
     "admissions": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["admission_rate"],
+      "required": ["admission_rate", "sat_average"],
       "properties": {
         "admission_rate": {
           "$ref": "#/$defs/nullableRate"
+        },
+        "sat_average": {
+          "$ref": "#/$defs/nullableNumber"
         }
       }
     },
     "outcomes": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["graduation_rate", "median_earnings_10yr"],
+      "required": ["graduation_rate", "transfer_rate", "median_earnings_10yr"],
       "properties": {
         "graduation_rate": {
           "$ref": "#/$defs/nullableRate"
         },
+        "transfer_rate": {
+          "$ref": "#/$defs/nullableRate"
+        },
         "median_earnings_10yr": {
           "$ref": "#/$defs/nullableNumber"
+        }
+      }
+    },
+    "campus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enrollment",
+        "control",
+        "pell_recipient_rate",
+        "international_rate"
+      ],
+      "properties": {
+        "enrollment": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "control": {
+          "type": ["string", "null"],
+          "enum": ["public", "private_nonprofit", "private_for_profit", null]
+        },
+        "pell_recipient_rate": {
+          "$ref": "#/$defs/nullableRate"
+        },
+        "international_rate": {
+          "$ref": "#/$defs/nullableRate"
         }
       }
     },

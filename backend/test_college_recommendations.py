@@ -34,11 +34,28 @@ class CollegeRecommendationNormalizationTests(unittest.TestCase):
                 "school_name": "Example University",
                 "school_city": "Orem",
                 "school_state": "UT",
-                "avg_net_price": "$13,250",
+                "control": 1,
+                "net_price_pub": "$13,250",
+                "net_price_priv": "$99,999",
                 "acceptance_rate": 65,
+                "sat_avg": 1210,
                 "completion_rate": 0.71,
-                "median_earnings": "58,400",
+                "transfer_rate": 0.08,
+                "median_earnings_10y": "58,400",
+                "median_grad_debt": "18,500",
+                "enrollment": 12400,
+                "pct_pell": 0.31,
+                "pct_international": 0.06,
+                "net_price_year": "2023-24",
+                "debt_year": 2023,
+                "admissions_year": 2024,
+                "completion_year": 2023,
+                "earnings_year": 2021,
+                "campus_year": 2024,
+                "program_year": "2023-24",
                 "programs": ["Registered Nursing", "Biology"],
+                "program_cip_codes": ["51.3801"],
+                "program_awards_last_year": 42,
                 "similarity": 0.873,
             }],
             profile=profile(budget=15000, gpa=3.5),
@@ -47,19 +64,42 @@ class CollegeRecommendationNormalizationTests(unittest.TestCase):
             now=NOW,
         )
 
-        self.assertEqual(payload["schema_version"], "1.0")
+        self.assertEqual(payload["schema_version"], "2.0")
         self.assertEqual(payload["event"], "college_results")
         self.assertEqual(payload["generated_at"], "2026-06-18T18:30:00Z")
         card = payload["colleges"][0]
+        self.assertEqual(
+            set(card),
+            {
+                "college_id", "name", "location", "cost", "admissions",
+                "outcomes", "campus", "program_fit", "fit", "sources",
+            },
+        )
+        self.assertNotIn("financials", card)
+        self.assertNotIn("match_score", card)
         self.assertEqual(card["college_id"], "230764")
-        self.assertEqual(card["financials"]["net_price"], 13250)
-        self.assertEqual(card["financials"]["budget_difference"], 1750)
-        self.assertTrue(card["financials"]["within_budget"])
-        self.assertEqual(card["admissions"]["admission_rate"], 0.65)
-        self.assertEqual(card["program"]["status"], "available")
-        self.assertEqual(card["match_score"], 87.3)
+        self.assertEqual(card["cost"]["facts"]["net_price"], 13250)
+        self.assertEqual(card["cost"]["personalized"]["budget_difference"], 1750)
+        self.assertTrue(card["cost"]["personalized"]["within_budget"])
+        self.assertEqual(card["cost"]["facts"]["source_years"]["net_price"], "2023-24")
+        self.assertEqual(card["cost"]["facts"]["source_years"]["median_grad_debt"], 2023)
+        self.assertEqual(card["admissions"]["facts"]["admission_rate"], 0.65)
+        self.assertEqual(card["admissions"]["facts"]["sat_average"], 1210)
+        self.assertEqual(card["cost"]["facts"]["median_grad_debt"], 18500)
+        self.assertEqual(card["outcomes"]["facts"]["transfer_rate"], 0.08)
+        self.assertEqual(card["outcomes"]["facts"]["median_earnings_10yr"], 58400)
+        self.assertEqual(card["outcomes"]["facts"]["source_years"]["earnings"], 2021)
+        self.assertEqual(card["campus"]["facts"]["enrollment"], 12400)
+        self.assertEqual(card["campus"]["facts"]["control"], "public")
+        self.assertEqual(card["campus"]["facts"]["pell_recipient_rate"], 0.31)
+        self.assertEqual(card["campus"]["facts"]["international_rate"], 0.06)
+        self.assertEqual(card["program_fit"]["personalized"]["status"], "available")
+        self.assertEqual(card["program_fit"]["facts"]["matched_programs"], ["Registered Nursing", "Biology"])
+        self.assertEqual(card["program_fit"]["facts"]["cip_codes"], ["51.3801"])
+        self.assertEqual(card["program_fit"]["facts"]["awards_last_year"], 42)
+        self.assertEqual(card["fit"]["score"], 87.3)
         self.assertIn("College Scorecard", card["sources"][0]["name"])
-        self.assertIn("financials.net_price", card["sources"][0]["fields"])
+        self.assertIn("cost.facts.net_price", card["sources"][0]["fields"])
 
     def test_unknown_data_stays_null_or_unknown(self):
         payload = normalize_college_results(
@@ -70,11 +110,63 @@ class CollegeRecommendationNormalizationTests(unittest.TestCase):
             now=NOW,
         )
         card = payload["colleges"][0]
-        self.assertIsNone(card["financials"]["net_price"])
-        self.assertIsNone(card["financials"]["within_budget"])
-        self.assertIsNone(card["admissions"]["admission_rate"])
-        self.assertEqual(card["program"]["status"], "unknown")
-        self.assertEqual(card["classification"]["label"], "unknown")
+        self.assertIsNone(card["cost"]["facts"]["net_price"])
+        self.assertIsNone(card["cost"]["personalized"]["within_budget"])
+        self.assertIsNone(card["admissions"]["facts"]["admission_rate"])
+        self.assertEqual(card["program_fit"]["personalized"]["status"], "unknown")
+        self.assertEqual(card["admissions"]["personalized"]["classification"]["label"], "unknown")
+        self.assertIsNone(card["cost"]["facts"]["median_grad_debt"])
+        self.assertIsNone(card["admissions"]["facts"]["sat_average"])
+        self.assertIsNone(card["outcomes"]["facts"]["transfer_rate"])
+        self.assertEqual(
+            card["campus"]["facts"],
+            {
+                "enrollment": None,
+                "control": None,
+                "size_category": None,
+                "pell_recipient_rate": None,
+                "international_rate": None,
+                "source_year": None,
+            },
+        )
+
+    def test_private_control_selects_private_net_price(self):
+        payload = normalize_college_results(
+            [{
+                "unitid": "private-school",
+                "name": "Private College",
+                "control": 2,
+                "net_price_pub": 9000,
+                "net_price_priv": 24000,
+            }],
+            profile=profile(),
+            filters={},
+            query="Private colleges",
+            now=NOW,
+        )
+
+        card = payload["colleges"][0]
+        self.assertEqual(card["cost"]["facts"]["net_price"], 24000)
+        self.assertEqual(card["campus"]["facts"]["control"], "private_nonprofit")
+
+    def test_aggregated_rpc_program_fields_map_to_program_status(self):
+        payload = normalize_college_results(
+            [{
+                "unitid": "program-school",
+                "name": "Program College",
+                "programs": ["Computer and Information Sciences, General"],
+                "program_cip_codes": ["11"],
+                "program_awards_last_year": 42,
+            }],
+            profile=profile(major="Computer and Information Sciences"),
+            filters={},
+            query="Computer science programs",
+            now=NOW,
+        )
+
+        program = payload["colleges"][0]["program_fit"]
+        self.assertEqual(program["personalized"]["status"], "available")
+        self.assertEqual(program["facts"]["cip_codes"], ["11"])
 
     def test_student_gpa_drives_classification_when_comparison_exists(self):
         payload = normalize_college_results(
@@ -89,7 +181,7 @@ class CollegeRecommendationNormalizationTests(unittest.TestCase):
             query="Computer science",
             now=NOW,
         )
-        classification = payload["colleges"][0]["classification"]
+        classification = payload["colleges"][0]["admissions"]["personalized"]["classification"]
         self.assertEqual(classification["label"], "likely")
         self.assertEqual(classification["basis"], "student_academic_profile")
         self.assertIn("3.8 GPA is above", classification["reason"])
@@ -119,7 +211,7 @@ class CollegeRecommendationNormalizationTests(unittest.TestCase):
         )
 
         range_fit, selective_fit = [
-            college["classification"] for college in payload["colleges"]
+            college["admissions"]["personalized"]["classification"] for college in payload["colleges"]
         ]
         self.assertEqual(range_fit["label"], "likely")
         self.assertIn("3.2-3.7 GPA range", range_fit["reason"])
@@ -135,7 +227,7 @@ class CollegeRecommendationNormalizationTests(unittest.TestCase):
             query="Accessible colleges",
             now=NOW,
         )
-        classification = payload["colleges"][0]["classification"]
+        classification = payload["colleges"][0]["admissions"]["personalized"]["classification"]
         self.assertEqual(classification["label"], "likely")
         self.assertEqual(classification["basis"], "admission_rate_only")
         self.assertIn("GPA data is unavailable", classification["reason"])
@@ -157,7 +249,7 @@ class CollegeRecommendationNormalizationTests(unittest.TestCase):
             query="Affordable nursing in Utah",
             now=NOW,
         )
-        reasons = payload["colleges"][0]["match_reasons"]
+        reasons = payload["colleges"][0]["fit"]["reasons"]
         self.assertEqual(
             [reason["category"] for reason in reasons],
             ["program", "financial", "academic", "location", "outcomes"],
@@ -182,8 +274,8 @@ class CollegeRecommendationNormalizationTests(unittest.TestCase):
         }
         first = normalize_college_results([row], **arguments)["colleges"][0]
         second = normalize_college_results([row], **arguments)["colleges"][0]
-        self.assertEqual(first["classification"], second["classification"])
-        self.assertEqual(first["match_reasons"], second["match_reasons"])
+        self.assertEqual(first["admissions"]["personalized"], second["admissions"]["personalized"])
+        self.assertEqual(first["fit"]["reasons"], second["fit"]["reasons"])
 
     def test_source_links_preserve_provenance_and_avoid_fake_record_ids(self):
         payload = normalize_college_results(
@@ -224,10 +316,10 @@ class CollegeRecommendationNormalizationTests(unittest.TestCase):
             query="Affordable colleges",
             now=NOW,
         )
-        financials = payload["colleges"][0]["financials"]
-        self.assertEqual(financials["student_budget"], 10000)
-        self.assertEqual(financials["budget_difference"], -2000)
-        self.assertFalse(financials["within_budget"])
+        cost_fit = payload["colleges"][0]["cost"]["personalized"]
+        self.assertEqual(cost_fit["student_budget"], 10000)
+        self.assertEqual(cost_fit["budget_difference"], -2000)
+        self.assertFalse(cost_fit["within_budget"])
 
 
 if __name__ == "__main__":
